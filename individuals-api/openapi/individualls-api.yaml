@@ -1,0 +1,347 @@
+openapi: 3.0.3
+info:
+  title: Individuals API
+  description: API для регистрации, аутентификации и управления пользователями
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8091
+    description: Local development server
+
+paths:
+  # ============================================
+  # Аутентификация
+  # ============================================
+  /api/v1/auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Регистрация нового пользователя
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationRequest'
+      responses:
+        '201':
+          description: Пользователь успешно зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUserResponse'
+        '400':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email уже занят
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Вход в систему
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Неверные учетные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Аккаунт заблокирован или не активирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Обновление токена доступа
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Токен обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Невалидный refresh-токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================
+  # Текущий пользователь
+  # ============================================
+  /api/v1/users/me:
+    get:
+      tags:
+        - Users
+      summary: Получить данные текущего пользователя
+      operationId: getCurrentUser
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Данные пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUserResponse'
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  # ============================================
+  # Схемы безопасности
+  # ============================================
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # ============================================
+  # DTO
+  # ============================================
+  schemas:
+    # ------------------------------------------
+    # Запрос на регистрацию
+    # ------------------------------------------
+    RegistrationRequest:
+      type: object
+      required:
+        - email
+        - password
+        - confirmPassword
+        - firstName
+        - lastName
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email пользователя
+          example: user@example.com
+          maxLength: 32
+        password:
+          type: string
+          format: password
+          description: Пароль
+          example: "Str0ngP@ss!"
+          minLength: 8
+          maxLength: 32
+        confirmPassword:
+          type: string
+          format: password
+          description: Подтверждение пароля
+          example: "Str0ngP@ss!"
+          maxLength: 32
+        firstName:
+          type: string
+          description: Имя
+          example: Иван
+          maxLength: 32
+        lastName:
+          type: string
+          description: Фамилия
+          example: Иванов
+          maxLength: 32
+
+    # ------------------------------------------
+    # Запрос на вход
+    # ------------------------------------------
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email пользователя
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          description: Пароль
+          example: "Str0ngP@ss!"
+
+    # ------------------------------------------
+    # Запрос на обновление токена
+    # ------------------------------------------
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          description: Refresh-токен
+          example: "eyJhbGciOiJIUzI1NiIs..."
+
+    # ------------------------------------------
+    # Ответ с токенами
+    # ------------------------------------------
+    TokenResponse:
+      type: object
+      required:
+        - accessToken
+        - refreshToken
+        - expiresIn
+        - tokenType
+      properties:
+        accessToken:
+          type: string
+          description: Access-токен (JWT)
+          example: "eyJhbGciOiJSUzI1NiIs..."
+        refreshToken:
+          type: string
+          description: Refresh-токен
+          example: "eyJhbGciOiJIUzI1NiIs..."
+        expiresIn:
+          type: integer
+          description: Время жизни access-токена в секундах
+          example: 300
+        tokenType:
+          type: string
+          description: Тип токена
+          example: "Bearer"
+
+    # ------------------------------------------
+    # Данные текущего пользователя
+    # ------------------------------------------
+    CurrentUserResponse:
+      type: object
+      required:
+        - id
+        - email
+        - firstName
+        - lastName
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID пользователя
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        email:
+          type: string
+          format: email
+          description: Email
+          example: user@example.com
+        firstName:
+          type: string
+          description: Имя
+          example: Иван
+        lastName:
+          type: string
+          description: Фамилия
+          example: Иванов
+        status:
+          type: string
+          description: Статус пользователя
+          enum:
+            - NEW
+            - ACTIVE
+            - BLOCKED
+            - ARCHIVED
+          example: "ACTIVE"
+        createdAt:
+          type: string
+          format: date-time
+          description: Дата создания
+          example: "2025-01-15T10:30:00Z"
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Дата архивации (если архивный)
+          example: null
+
+    # ------------------------------------------
+    # Ответ с ошибкой (ваша схема)
+    # ------------------------------------------
+    ErrorResponse:
+      type: object
+      required:
+        - timestamp
+        - path
+        - status
+        - error
+        - message
+        - traceId
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Время ошибки
+        path:
+          type: string
+          description: Путь запроса
+          example: "/api/v1/auth/login"
+        status:
+          type: integer
+          description: HTTP-статус
+          example: 401
+        error:
+          type: string
+          description: Тип ошибки
+          example: "Unauthorized"
+        message:
+          type: string
+          description: Сообщение об ошибке
+          example: "Invalid email or password"
+        traceId:
+          type: string
+          description: ID трейса для отладки
+          example: "a1b2c3d4e5f6"
+        details:
+          type: array
+          description: Детали ошибки (валидация)
+          items:
+            type: string
+          example: ["password: must be at least 8 characters"]
+
+tags:
+  - name: Auth
+    description: Аутентификация и регистрация
+  - name: Users
+    description: Управление пользователями
