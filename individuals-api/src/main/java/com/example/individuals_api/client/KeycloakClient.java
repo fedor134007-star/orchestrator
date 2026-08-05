@@ -1,6 +1,6 @@
 package com.example.individuals_api.client;
 
-import net.generated.individualls.dto.*;
+import net.generated.individuals.dto.*;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;

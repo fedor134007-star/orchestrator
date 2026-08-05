@@ -2,7 +2,7 @@ package com.example.individuals_api.service;
 
 import com.example.individuals_api.client.KeycloakClient;
 import com.example.individuals_api.utils.AuthMetrics;
-import net.generated.individualls.dto.*;
+import net.generated.individuals.dto.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

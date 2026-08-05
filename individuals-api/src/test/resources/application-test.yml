@@ -1,0 +1,11 @@
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://localhost:8080/realms/individual/protocol/openid-connect/certs
+          issuer-uri: http://localhost:8080/realms/individual
+keycloak:
+  client-id: individuals-api
+  client-secret: lBO6Dz0IJXoNxqfZNPhf4qGxFB0HytaV
+  realm: individual

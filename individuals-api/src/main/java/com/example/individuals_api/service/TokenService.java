@@ -1,8 +1,8 @@
 package com.example.individuals_api.service;
 
-import net.generated.individualls.dto.LoginRequest;
-import net.generated.individualls.dto.RefreshTokenRequest;
-import net.generated.individualls.dto.TokenResponse;
+import net.generated.individuals.dto.LoginRequest;
+import net.generated.individuals.dto.RefreshTokenRequest;
+import net.generated.individuals.dto.TokenResponse;
 import reactor.core.publisher.Mono;
 
 public interface TokenService {

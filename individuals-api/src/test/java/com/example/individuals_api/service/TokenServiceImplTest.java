@@ -1,9 +1,9 @@
 package com.example.individuals_api.service;
 
 import com.example.individuals_api.client.KeycloakClient;
-import net.generated.individualls.dto.LoginRequest;
-import net.generated.individualls.dto.RefreshTokenRequest;
-import net.generated.individualls.dto.TokenResponse;
+import net.generated.individuals.dto.LoginRequest;
+import net.generated.individuals.dto.RefreshTokenRequest;
+import net.generated.individuals.dto.TokenResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

@@ -5,10 +5,10 @@ import com.example.individuals_api.client.KeycloakClient;
 import com.example.individuals_api.utils.AuthMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import net.generated.individualls.dto.CurrentUserResponse;
-import net.generated.individualls.dto.LoginRequest;
-import net.generated.individualls.dto.RegistrationRequest;
-import net.generated.individualls.dto.TokenResponse;
+import net.generated.individuals.dto.CurrentUserResponse;
+import net.generated.individuals.dto.LoginRequest;
+import net.generated.individuals.dto.RegistrationRequest;
+import net.generated.individuals.dto.TokenResponse;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 

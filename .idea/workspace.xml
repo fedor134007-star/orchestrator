@@ -4,7 +4,29 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="80c1656c-57a6-41ca-833d-baf2c613d4e3" name="Changes" comment="commit" />
+    <list default="true" id="332dac14-fbeb-4775-8de7-dbb37d4a8739" name="Changes" comment="first commit">
+      <change afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/dto/KeycloakUserRequest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/individuals-api/src/test/java/com/example/individuals_api/controller/AuthControllerIntegrationTest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/individuals-api/src/test/java/com/example/individuals_api/controller/TestSecurityConfig.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/individuals-api/src/test/resources/application-test.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/build.gradle.kts" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/build.gradle.kts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/openapi/individualls-api.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/openapi/individuals-api.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/client/KeycloakClient.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/client/KeycloakClient.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/client/KeycloakClientImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/client/KeycloakClientImpl.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/config/SecurityConfig.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/config/SecurityConfig.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/controller/AuthController.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/controller/AuthController.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/exception/GlobalExceptionHandler.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/exception/GlobalExceptionHandler.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/service/TokenService.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/service/TokenService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/service/TokenServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/service/TokenServiceImpl.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/service/UserService.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/service/UserService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/service/UserServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/service/UserServiceImpl.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/test/java/com/example/individuals_api/IndividualsApiApplicationTests.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/test/java/com/example/individuals_api/client/KeycloakClientImplIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/test/java/com/example/individuals_api/client/KeycloakClientImplIntegrationTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/test/java/com/example/individuals_api/controller/AuthControllerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/test/java/com/example/individuals_api/controller/AuthControllerTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/test/java/com/example/individuals_api/service/TokenServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/test/java/com/example/individuals_api/service/TokenServiceImplTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/individuals-api/src/test/java/com/example/individuals_api/service/UserServiceImplTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/test/java/com/example/individuals_api/service/UserServiceImplTest.java" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -41,12 +63,6 @@
     &quot;assignee&quot;: &quot;fedor134007-star&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings">{
-  &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;git@github.com:fedor134007-star/individuals-api.git&quot;,
-    &quot;accountId&quot;: &quot;60a92deb-4d2d-4f22-919e-eca219b799f4&quot;
-  }
-}</component>
   <component name="GradleScriptDefinitionsStorage" workingDir="$PROJECT_DIR$" gradleHome="$USER_HOME$/.gradle/wrapper/dists/gradle-9.2.0-bin/11i5gvueggl8a5cioxuftxrik/gradle-9.2.0" javaHome="/Library/Java/JavaVirtualMachines/jdk-25.jdk/Contents/Home" gradleVersion="9.2.0" />
   <component name="KubernetesApiPersistence">{}</component>
   <component name="KubernetesApiProvider">{
@@ -61,28 +77,28 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Docker.Dockerfile.executor": "Run",
-    "Docker.docker-compose.yaml.swagger-ui: Compose Deployment.executor": "Run",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "git-widget-placeholder": "main",
-    "junie.onboarding.icon.badge.shown": "true",
-    "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "/Users/fedor/JavaAdvanced/proselyte-payment-platform",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "to.speed.mode.migration.done": "true",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Docker.Dockerfile.executor&quot;: &quot;Run&quot;,
+    &quot;Docker.docker-compose.yaml.swagger-ui: Compose Deployment.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/fedor/JavaAdvanced/proselyte-payment-platform&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/person-service/src/main/resources" />
@@ -158,7 +174,6 @@
       <updated>1784236760046</updated>
       <workItem from="1784236761372" duration="2706000" />
       <workItem from="1784239540829" duration="1274000" />
-      <workItem from="1784376036695" duration="75179000" />
     </task>
     <task id="LOCAL-00001" summary="commit">
       <option name="closed" value="true" />
@@ -176,7 +191,6 @@
       <option name="project" value="LOCAL" />
       <updated>1784240207231</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -184,6 +198,5 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="commit" />
-    <option name="LAST_COMMIT_MESSAGE" value="commit" />
   </component>
 </project>

@@ -3,38 +3,48 @@ package com.example.individuals_api.controller;
 import com.example.individuals_api.service.TokenService;
 import com.example.individuals_api.service.UserService;
 import lombok.RequiredArgsConstructor;
-import net.generated.individualls.dto.*;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import net.generated.individuals.api.AuthApi;
+import net.generated.individuals.dto.*;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 @RestController
-@RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
-public class AuthController {
+public class AuthController implements AuthApi {
 
     private final UserService userService;
     private final TokenService tokenService;
 
-    @PostMapping("/login")
-    public Mono<TokenResponse> login(@RequestBody LoginRequest request) {
-        return tokenService.login(request);
+    @Override
+    public Mono<ResponseEntity<TokenResponse>> login(Mono<LoginRequest> loginRequest, ServerWebExchange exchange) {
+        return loginRequest
+                .flatMap(tokenService::login)
+                .map(ResponseEntity::ok);
     }
 
-    @PostMapping("/refresh")
-    public Mono<TokenResponse> refreshToken(@RequestBody RefreshTokenRequest request) {
-        return tokenService.refresh(request);
+    @Override
+    public Mono<ResponseEntity<TokenResponse>> refreshToken(Mono<RefreshTokenRequest> refreshTokenRequest, ServerWebExchange exchange) {
+        return refreshTokenRequest
+                .flatMap(tokenService::refresh)
+                .map(ResponseEntity::ok);
     }
 
-    @PostMapping("/registration")
-    public Mono<TokenResponse> register(
-            @RequestBody RegistrationRequest request) {
-        return userService.register(request);
+    @Override
+    public Mono<ResponseEntity<TokenResponse>> register(Mono<RegistrationRequest> request, ServerWebExchange exchange) {
+        return request
+                .flatMap(userService::register)
+                .map(ResponseEntity::ok);
     }
 
-    @GetMapping("/me")
-    public Mono<CurrentUserResponse> getCurrentUser(@AuthenticationPrincipal Jwt jwt) {
-        return userService.getCurrentUser(jwt.getClaimAsString("sub"));
+    @Override
+    public Mono<ResponseEntity<CurrentUserResponse>> getCurrentUser(ServerWebExchange exchange) {
+        return exchange.getPrincipal()
+                .cast(Jwt.class)
+                .map(jwt -> jwt.getClaimAsString("sub"))
+                .flatMap(userService::getCurrentUser)
+                .map(ResponseEntity::ok);
     }
 }

@@ -55,7 +55,7 @@ dependencyManagement {
 configurations.all { resolutionStrategy.cacheChangingModulesFor(0, "seconds") }
 
 dependencies {
-    // SPRING — только WebFlux
+    // SPRING
     implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:${versions["swagger"]}")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
@@ -63,7 +63,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
     implementation("org.springframework.boot:spring-boot-starter-security")
 
-    // OBSERVABILITY — всё как было
+    // OBSERVABILITY
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("io.github.openfeign:feign-micrometer:${versions["feignMicrometerVersion"]}")
     implementation("io.opentelemetry:opentelemetry-exporter-otlp")
@@ -74,7 +74,7 @@ dependencies {
     implementation("io.opentelemetry.instrumentation:opentelemetry-spring-boot-starter")
     implementation("ch.qos.logback:logback-classic:${versions["logbackClassicVersion"]}")
 
-    // HELPERS — всё как было
+    // HELPERS
     compileOnly("org.projectlombok:lombok")
     compileOnly("org.mapstruct:mapstruct:${versions["mapstructVersion"]}")
     compileOnly("com.google.code.findbugs:jsr305:${versions["comGoogleCodeFindbugs"]}")
@@ -83,16 +83,19 @@ dependencies {
     implementation("javax.validation:validation-api:${versions["javaxValidationApiVersion"]}")
     implementation("javax.annotation:javax.annotation-api:${versions["javaxAnnotationApiVersion"]}")
 
-    // TEST — всё как было
+    // TEST
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testCompileOnly("org.projectlombok:lombok")
     testAnnotationProcessor("org.projectlombok:lombok")
     testImplementation("org.junit.jupiter:junit-jupiter:${versions["junitJupiterVersion"]}")
-    implementation("org.springframework.boot:spring-boot-webflux-test:${versions["webfluxTest"]}")
     testImplementation("io.projectreactor:reactor-test")
     testImplementation("org.springframework.security:spring-security-test")
     testImplementation("com.github.dasniko:testcontainers-keycloak:${versions["keycloakTest"]}")
+    testImplementation("org.springframework.boot:spring-boot-starter-webflux")
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+
+
 
 
     // TestContainers тоже можно убрать, если нет БД
@@ -128,7 +131,9 @@ foundSpecifications.forEach { specFile ->
 
         configOptions.set(
             mapOf(
-                "library" to "spring-cloud",
+                "library" to "spring-boot",
+                "reactive" to "true",
+                "delegatePattern" to "false",
                 "skipDefaultInterface" to "true",
                 "useBeanValidation" to "true",
                 "openApiNullable" to "false",
@@ -136,7 +141,8 @@ foundSpecifications.forEach { specFile ->
                 "useTags" to "true",
                 "apiPackage" to "${basePackage}.api",
                 "modelPackage" to "${basePackage}.dto",
-                "configPackage" to "${basePackage}.config"
+                "configPackage" to "${basePackage}.config",
+                "generateSupportingFiles" to "false"
             )
         )
 

@@ -2,8 +2,9 @@ package com.example.individuals_api.client;
 
 import com.example.individuals_api.config.AdminTokenProvider;
 import com.example.individuals_api.config.KeycloakProperties;
+import com.example.individuals_api.dto.KeycloakUserRequest;
 import lombok.RequiredArgsConstructor;
-import net.generated.individualls.dto.*;
+import net.generated.individuals.dto.*;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.BodyInserters;
@@ -29,14 +30,7 @@ public class KeycloakClientImpl implements KeycloakClient {
     public Mono<String> register(RegistrationRequest registrationRequest) {
         return tokenProvider.getToken()
                 .flatMap(token -> {
-                    Map<String, Object> body = new java.util.LinkedHashMap<>();
-                    body.put("email", registrationRequest.getEmail());
-                    body.put("firstName", registrationRequest.getFirstName());
-                    body.put("lastName", registrationRequest.getLastName());
-                    body.put("enabled", true);
-                    body.put("emailVerified", true);
-                    body.put("username", registrationRequest.getEmail());
-
+                    KeycloakUserRequest body = KeycloakUserRequest.from(registrationRequest);
                     return keycloakWebClient.post()
                             .uri("/admin/realms/{realm}/users", "individual")
                             .header("Authorization", "Bearer " + token)
@@ -48,29 +42,24 @@ public class KeycloakClientImpl implements KeycloakClient {
                                 String loc = r.getHeaders().getFirst("Location");
                                 return loc.substring(loc.lastIndexOf('/') + 1);
                             })
-                            .flatMap(userId -> setPassword(userId, registrationRequest.getPassword())
+                            .flatMap(userId -> setPassword(token, userId, registrationRequest.getPassword())
                                     .thenReturn(userId));
                 });
     }
 
-
-    private Mono<Void> setPassword(String userId, String password) {
-        return tokenProvider.getToken()
-                .flatMap(token -> {
-                    Map<String, Object> cred = Map.of(
-                            "type", "password",
-                            "value", password,
-                            "temporary", false
-                    );
-
-                    return keycloakWebClient.put()
-                            .uri("/admin/realms/{realm}/users/{userId}/reset-password", "individual", userId)
-                            .header("Authorization", "Bearer " + token)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .bodyValue(cred)
-                            .retrieve()
-                            .bodyToMono(Void.class);
-                });
+    private Mono<Void> setPassword(String adminToken, String userId, String password) {
+        Map<String, Object> cred = Map.of(
+                "type", "password",
+                "value", password,
+                "temporary", false
+        );
+        return keycloakWebClient.put()
+                .uri("/admin/realms/{realm}/users/{userId}/reset-password", "individual", userId)
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(cred)
+                .retrieve()
+                .bodyToMono(Void.class);
     }
 
 

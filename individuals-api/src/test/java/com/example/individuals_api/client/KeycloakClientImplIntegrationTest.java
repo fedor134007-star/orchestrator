@@ -3,7 +3,7 @@ package com.example.individuals_api.client;
 import com.example.individuals_api.config.AdminTokenProvider;
 import com.example.individuals_api.config.KeycloakProperties;
 import dasniko.testcontainers.keycloak.KeycloakContainer;
-import net.generated.individualls.dto.*;
+import net.generated.individuals.dto.*;
 import org.junit.jupiter.api.*;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;

@@ -1,8 +1,8 @@
 package com.example.individuals_api.service;
 
-import net.generated.individualls.dto.CurrentUserResponse;
-import net.generated.individualls.dto.RegistrationRequest;
-import net.generated.individualls.dto.TokenResponse;
+import net.generated.individuals.dto.CurrentUserResponse;
+import net.generated.individuals.dto.RegistrationRequest;
+import net.generated.individuals.dto.TokenResponse;
 import reactor.core.publisher.Mono;
 
 public interface UserService {

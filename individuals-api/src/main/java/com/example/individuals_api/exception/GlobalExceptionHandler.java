@@ -1,7 +1,7 @@
 package com.example.individuals_api.exception;
 
 import lombok.extern.slf4j.Slf4j;
-import net.generated.individualls.dto.ErrorResponse;
+import net.generated.individuals.dto.ErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;

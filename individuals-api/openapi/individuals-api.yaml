@@ -30,7 +30,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CurrentUserResponse'
+                $ref: '#/components/schemas/TokenResponse'
         '400':
           description: Ошибка валидации
           content:
@@ -105,10 +105,10 @@ paths:
   # ============================================
   # Текущий пользователь
   # ============================================
-  /api/v1/users/me:
+  /api/v1/auth/me:
     get:
       tags:
-        - Users
+        - Auth
       summary: Получить данные текущего пользователя
       operationId: getCurrentUser
       security:

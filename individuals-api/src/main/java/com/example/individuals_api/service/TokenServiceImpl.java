@@ -2,9 +2,9 @@ package com.example.individuals_api.service;
 
 import com.example.individuals_api.client.KeycloakClient;
 import lombok.RequiredArgsConstructor;
-import net.generated.individualls.dto.LoginRequest;
-import net.generated.individualls.dto.RefreshTokenRequest;
-import net.generated.individualls.dto.TokenResponse;
+import net.generated.individuals.dto.LoginRequest;
+import net.generated.individuals.dto.RefreshTokenRequest;
+import net.generated.individuals.dto.TokenResponse;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
