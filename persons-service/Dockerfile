@@ -14,11 +14,8 @@ COPY settings.gradle.kts .
 COPY src ./src
 COPY openapi ./openapi
 
-# Создаем bootJar
-RUN gradle --no-daemon clean bootJar -x test
-
-# Находим bootJar и переименовываем в app.jar
-RUN find build/libs -name "*.jar" ! -name "*plain.jar" ! -name "*javadoc.jar" ! -name "*sources.jar" -exec cp {} /tmp/app.jar \;
+RUN gradle --no-daemon clean build -x test
+RUN gradle publish --info
 
 FROM eclipse-temurin:25-jre
 
@@ -26,8 +23,8 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Копируем из /tmp
-COPY --from=build /tmp/app.jar app.jar
+COPY --from=build /home/gradle/project/build/libs/*.jar app.jar
 
-EXPOSE 8091
+EXPOSE 8092
 CMD ["java", "-jar", "app.jar"]
+

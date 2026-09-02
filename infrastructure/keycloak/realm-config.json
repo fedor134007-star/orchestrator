@@ -1,0 +1,102 @@
+{
+  "realm": "individual",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "individuals-api",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "lBO6Dz0IJXoNxqfZNPhf4qGxFB0HytaV",
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true,
+      "publicClient": false,
+      "protocolMappers": [
+        {
+          "name": "client-roles-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "user-uid-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "config": {
+            "claim.name": "user_uid",
+            "claim.value": "",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "person-service",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "VUZnqCwNqyGdze8wTFa7EbMi0LSbQhGv",
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true,
+      "publicClient": false
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-individuals-api",
+      "enabled": true,
+      "serviceAccountClientId": "individuals-api",
+      "realmRoles": [
+        "default-roles-individual"
+      ],
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "manage-clients",
+          "view-clients",
+          "query-clients"
+        ]
+      }
+    },
+    {
+      "username": "service-account-person-service",
+      "enabled": true,
+      "serviceAccountClientId": "person-service",
+      "realmRoles": [
+        "default-roles-individual"
+      ],
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users"
+        ]
+      }
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "USER",
+        "description": "Default user role"
+      },
+      {
+        "name": "ADMIN",
+        "description": "Administrator role"
+      }
+    ]
+  }
+}

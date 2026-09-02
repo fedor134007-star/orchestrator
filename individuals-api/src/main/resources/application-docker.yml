@@ -1,0 +1,2 @@
+person-service:
+  base-url: ${PERSONS_SERVICE_URL:http://persons-service:8092}
