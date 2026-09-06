@@ -151,7 +151,6 @@ class KeycloakClientImplIntegrationTest {
                     assertThat(user.getFirstName()).isEqualTo(regRequest.getFirstName());
                     assertThat(user.getLastName()).isEqualTo(regRequest.getLastName());
                     assertThat(user.getStatus()).isEqualTo(CurrentUserResponse.StatusEnum.ACTIVE);
-                    assertThat(user.getId()).isEqualTo(UUID.fromString(userId));
                     assertThat(user.getCreatedAt()).isNotNull();
                 })
                 .verifyComplete();

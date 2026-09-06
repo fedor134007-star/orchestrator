@@ -7,9 +7,12 @@ import net.generated.individuals.api.AuthApi;
 import net.generated.individuals.dto.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
+
+import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
@@ -42,9 +45,21 @@ public class AuthController implements AuthApi {
     @Override
     public Mono<ResponseEntity<CurrentUserResponse>> getCurrentUser(ServerWebExchange exchange) {
         return exchange.getPrincipal()
-                .cast(Jwt.class)
-                .map(jwt -> jwt.getClaimAsString("sub"))
-                .flatMap(userService::getCurrentUser)
+                .cast(JwtAuthenticationToken.class)
+                .flatMap(jwtAuth -> {
+                    Jwt jwt = jwtAuth.getToken();
+                    String keycloakUserId = jwt.getClaimAsString("sub");
+                    String userUid = jwt.getClaimAsString("user_uid");
+                    if (userUid != null) {
+                        return userService.getCurrentUser(keycloakUserId)
+                                .map(response -> {
+                                    response.setUserUid(UUID.fromString(userUid));
+                                    return response;
+                                });
+                    } else {
+                        return userService.getCurrentUser(keycloakUserId);
+                    }
+                })
                 .map(ResponseEntity::ok);
     }
 }

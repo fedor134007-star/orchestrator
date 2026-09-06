@@ -1,0 +1,434 @@
+openapi: 3.0.3
+info:
+  title: Person Service API
+  description: API для управления доменными пользователями платформы
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8092
+    description: Local development server
+
+paths:
+  # ============================================
+  # Регистрация доменного пользователя
+  # ============================================
+  /api/v1/persons/registration:
+    post:
+      tags:
+        - Persons
+      summary: Создать доменного пользователя
+      description: Создает доменного пользователя и возвращает его user_uid
+      operationId: registerPerson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonRegistrationRequest'
+      responses:
+        '201':
+          description: Пользователь успешно создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonResponse'
+        '400':
+          description: Некорректные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Пользователь с таким email уже существует
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================
+  # Работа с пользователем по user_uid
+  # ============================================
+  /api/v1/persons/{userUid}:
+    get:
+      tags:
+        - Persons
+      summary: Получить пользователя по доменному идентификатору
+      description: Возвращает доменного пользователя по user_uid
+      operationId: getPersonByUid
+      parameters:
+        - name: userUid
+          in: path
+          required: true
+          description: Уникальный идентификатор доменного пользователя
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Пользователь найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonResponse'
+        '404':
+          description: Пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - Persons
+      summary: Обновить данные пользователя
+      description: Обновляет данные доменного пользователя
+      operationId: updatePerson
+      parameters:
+        - name: userUid
+          in: path
+          required: true
+          description: Уникальный идентификатор доменного пользователя
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonUpdateRequest'
+      responses:
+        '200':
+          description: Пользователь обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonResponse'
+        '404':
+          description: Пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Некорректные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================
+  # Получение пользователя по email
+  # ============================================
+  /api/v1/persons/by-email:
+    get:
+      tags:
+        - Persons
+      summary: Получить пользователя по email
+      description: Возвращает доменного пользователя по email
+      operationId: getPersonByEmail
+      parameters:
+        - name: email
+          in: query
+          required: true
+          description: Email пользователя
+          schema:
+            type: string
+            format: email
+      responses:
+        '200':
+          description: Пользователь найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonResponse'
+        '404':
+          description: Пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================
+  # Изменение статуса пользователя
+  # ============================================
+  /api/v1/persons/{userUid}/status:
+    patch:
+      tags:
+        - Persons
+      summary: Изменить статус пользователя
+      description: Изменяет статус доменного пользователя (ACTIVE, BLOCKED, ARCHIVED)
+      operationId: updatePersonStatus
+      parameters:
+        - name: userUid
+          in: path
+          required: true
+          description: Уникальный идентификатор доменного пользователя
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonStatusUpdateRequest'
+      responses:
+        '200':
+          description: Статус обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonResponse'
+        '404':
+          description: Пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Некорректный статус
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  # ============================================
+  # Схемы безопасности
+  # ============================================
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # ============================================
+  # DTO
+  # ============================================
+  schemas:
+    # ------------------------------------------
+    # Запрос на создание пользователя
+    # ------------------------------------------
+    PersonRegistrationRequest:
+      type: object
+      required:
+        - email
+        - firstName
+        - lastName
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email пользователя
+          example: user@example.com
+          maxLength: 100
+        firstName:
+          type: string
+          description: Имя
+          example: Иван
+          minLength: 1
+          maxLength: 100
+        lastName:
+          type: string
+          description: Фамилия
+          example: Иванов
+          minLength: 1
+          maxLength: 100
+        middleName:
+          type: string
+          nullable: true
+          description: Отчество (опционально)
+          example: Иванович
+          maxLength: 100
+        phoneNumber:
+          type: string
+          nullable: true
+          pattern: '^\+?[0-9\-\s\(\)]+$'
+          description: Номер телефона
+          example: "+7 (999) 123-45-67"
+          maxLength: 20
+
+    # ------------------------------------------
+    # Запрос на обновление пользователя
+    # ------------------------------------------
+    PersonUpdateRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+          description: Имя
+          example: Иван
+          minLength: 1
+          maxLength: 100
+        lastName:
+          type: string
+          description: Фамилия
+          example: Иванов
+          minLength: 1
+          maxLength: 100
+        middleName:
+          type: string
+          nullable: true
+          description: Отчество
+          example: Иванович
+          maxLength: 100
+        phoneNumber:
+          type: string
+          nullable: true
+          pattern: '^\+?[0-9\-\s\(\)]+$'
+          description: Номер телефона
+          example: "+7 (999) 123-45-67"
+          maxLength: 20
+
+    # ------------------------------------------
+    # Запрос на изменение статуса
+    # ------------------------------------------
+    PersonStatusUpdateRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          description: Новый статус пользователя
+          enum:
+            - ACTIVE
+            - BLOCKED
+            - ARCHIVED
+          example: "BLOCKED"
+        reason:
+          type: string
+          nullable: true
+          description: Причина изменения статуса
+          example: "Нарушение правил пользования"
+          maxLength: 500
+
+    # ------------------------------------------
+    # Ответ с данными пользователя
+    # ------------------------------------------
+    PersonResponse:
+      type: object
+      required:
+        - userUid
+        - email
+        - firstName
+        - lastName
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        userUid:
+          type: string
+          format: uuid
+          description: Уникальный доменный идентификатор
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        email:
+          type: string
+          format: email
+          description: Email пользователя
+          example: user@example.com
+        firstName:
+          type: string
+          description: Имя
+          example: Иван
+        lastName:
+          type: string
+          description: Фамилия
+          example: Иванов
+        middleName:
+          type: string
+          nullable: true
+          description: Отчество
+          example: Иванович
+        phoneNumber:
+          type: string
+          nullable: true
+          description: Номер телефона
+          example: "+7 (999) 123-45-67"
+        status:
+          type: string
+          description: Статус пользователя
+          enum:
+            - ACTIVE
+            - INACTIVE
+            - BLOCKED
+            - ARCHIVED
+          example: "ACTIVE"
+        createdAt:
+          type: string
+          format: date-time
+          description: Дата создания
+          example: "2025-01-15T10:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Дата последнего обновления
+          example: "2025-01-15T10:30:00Z"
+
+    # ------------------------------------------
+    # Ответ с ошибкой
+    # ------------------------------------------
+    ErrorResponse:
+      type: object
+      required:
+        - timestamp
+        - path
+        - status
+        - error
+        - message
+        - traceId
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Время ошибки
+          example: "2025-01-15T10:30:00Z"
+        path:
+          type: string
+          description: Путь запроса
+          example: "/api/v1/persons/550e8400-e29b-41d4-a716-446655440000"
+        status:
+          type: integer
+          description: HTTP-статус
+          example: 404
+        error:
+          type: string
+          description: Тип ошибки
+          example: "Not Found"
+        message:
+          type: string
+          description: Сообщение об ошибке
+          example: "Person not found"
+        traceId:
+          type: string
+          description: ID трейса для отладки
+          example: "a1b2c3d4e5f6"
+        details:
+          type: array
+          description: Детали ошибки
+          items:
+            type: string
+          example: ["email: must be a valid email address"]
+
+tags:
+  - name: Persons
+    description: Управление доменными пользователями

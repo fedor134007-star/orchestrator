@@ -41,8 +41,54 @@ java {
     }
 }
 
+
+// ============================================
+// Чтение .env файла
+// ============================================
+file(".env").takeIf { it.exists() }?.readLines()?.forEach { line ->
+    val trimmed = line.trim()
+    if (trimmed.isNotEmpty() && !trimmed.startsWith("#")) {
+        val parts = trimmed.split("=", limit = 2)
+        if (parts.size == 2) {
+            val key = parts[0].trim()
+            val value = parts[1].trim()
+            System.setProperty(key, value)
+            println("✅ Loaded env: ${key}=${value}")
+        }
+    }
+}
+
+// Получение значений с дефолтами
+val nexusUrl = System.getProperty("NEXUS_URL")
+    ?: System.getenv("NEXUS_URL")
+    ?: "http://localhost:8081/repository/maven"
+
+val nexusUser = System.getProperty("NEXUS_USERNAME")
+    ?: System.getenv("NEXUS_USERNAME")
+    ?: "admin"
+
+val nexusPassword = System.getProperty("NEXUS_PASSWORD")
+    ?: System.getenv("NEXUS_PASSWORD")
+    ?: "admin"
+
+println("📦 NEXUS_URL: $nexusUrl")
+println("👤 NEXUS_USERNAME: $nexusUser")
+
+// ============================================
+// Repositories
+// ============================================
 repositories {
     mavenCentral()
+
+    maven {
+        name = "nexus"
+        url = uri(nexusUrl)
+        isAllowInsecureProtocol = true
+        credentials {
+            username = nexusUser
+            password = nexusPassword
+        }
+    }
 }
 
 dependencyManagement {
@@ -96,14 +142,15 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 
 
+    // PERSON SERVICE CLIENT (из Nexus)
+    implementation("net.proselyte:person-service:1.0.0-SNAPSHOT")
 
-
-    // TestContainers тоже можно убрать, если нет БД
 }
 
 tasks.withType<Test> {
     useJUnitPlatform()
 }
+
 
 /*
 ──────────────────────────────────────────────────────
@@ -142,7 +189,8 @@ foundSpecifications.forEach { specFile ->
                 "apiPackage" to "${basePackage}.api",
                 "modelPackage" to "${basePackage}.dto",
                 "configPackage" to "${basePackage}.config",
-                "generateSupportingFiles" to "false"
+                "generateSupportingFiles" to "false",
+                "interfaceOnly" to "true",
             )
         )
 
@@ -260,17 +308,6 @@ file(".env").takeIf { it.exists() }?.readLines()?.forEach {
     val (k, v) = it.split("=", limit = 2)
     System.setProperty(k.trim(), v.trim())
     logger.lifecycle("${k.trim()}=${v.trim()}")
-}
-
-val nexusUrl = System.getenv("NEXUS_URL") ?: System.getProperty("NEXUS_URL")
-val nexusUser = System.getenv("NEXUS_USERNAME") ?: System.getProperty("NEXUS_USERNAME")
-val nexusPassword = System.getenv("NEXUS_PASSWORD") ?: System.getProperty("NEXUS_PASSWORD")
-
-if (nexusUrl.isNullOrBlank() || nexusUser.isNullOrBlank() || nexusPassword.isNullOrBlank()) {
-    throw GradleException(
-        "NEXUS details are not set. Create a .env file with correct properties: " +
-                "NEXUS_URL, NEXUS_USERNAME, NEXUS_PASSWORD"
-    )
 }
 
 /*
