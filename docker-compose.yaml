@@ -13,7 +13,7 @@ services:
       KEYCLOAK_CLIENT_ID: individuals-api
       SPRING_PROFILES_ACTIVE: docker
       PERSONS_API_HOST: persons-service
-      PERSONS_API_URL: http://persons-service:8092
+      PERSONS_SERVICE_URL: http://persons-service:8092
       OTLP_EXPORTER_ENDPOINT: http://tempo:4318
     ports:
       - "8091:8091"
@@ -86,27 +86,34 @@ services:
       - "9189:9187"
 
   # персон сервис
-  #  persons-service:
-  #    build:
-  #      context: ./person-service
-  #      dockerfile: Dockerfile
-  #    container_name: persons-service
-  #    ports:
-  #      - "8092:8092"
-  #    working_dir: /app
-  #    environment:
-  #      POSTGRES_HOST: person-service-postgres
-  #      POSTGRES_PORT: 5432
-  #      SPRING_PROFILES_ACTIVE: docker
-  #      OTLP_EXPORTER_ENDPOINT: http://tempo:4318
-  #    depends_on:
-  #      person-service-postgres:
-  #        condition: service_healthy
-  #    healthcheck:
-  #      test: [ "CMD", "curl", "-i", "http://localhost:8092/actuator/health" ]
-  #      interval: 5s
-  #      timeout: 5s
-  #      retries: 30
+  persons-service:
+    build:
+      context: ./persons-service
+      dockerfile: Dockerfile
+    container_name: persons-service
+    ports:
+      - "8092:8092"
+    working_dir: /app
+    environment:
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: individual
+      KEYCLOAK_CLIENT_SECRET: VUZnqCwNqyGdze8wTFa7EbMi0LSbQhGv
+      KEYCLOAK_CLIENT_ID: person-service
+      POSTGRES_HOST: person-service-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: person
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      SPRING_PROFILES_ACTIVE: docker
+      OTLP_EXPORTER_ENDPOINT: http://tempo:4318
+    depends_on:
+      person-service-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-i", "http://localhost:8092/actuator/health" ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
 
   # для person service database
   person-service-postgres:

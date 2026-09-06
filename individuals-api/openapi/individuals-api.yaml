@@ -12,7 +12,7 @@ paths:
   # ============================================
   # Аутентификация
   # ============================================
-  /api/v1/auth/register:
+  /api/v1/auth/registration:  # Изменено с /register на /registration
     post:
       tags:
         - Auth
@@ -76,7 +76,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /api/v1/auth/refresh:
+  /api/v1/auth/refresh-token:  # Изменено с /refresh на /refresh-token
     post:
       tags:
         - Auth
@@ -226,6 +226,10 @@ components:
         - refreshToken
         - expiresIn
         - tokenType
+        - userUid           # Добавлено
+        - keycloakUserId    # Добавлено
+        - roles             # Добавлено
+        - emailVerified     # Добавлено
       properties:
         accessToken:
           type: string
@@ -243,6 +247,25 @@ components:
           type: string
           description: Тип токена
           example: "Bearer"
+        userUid:
+          type: string
+          format: uuid
+          description: Доменный идентификатор пользователя
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        keycloakUserId:
+          type: string
+          description: Идентификатор пользователя в Keycloak
+          example: "f3b3b3b3-3b3b-3b3b-3b3b-3b3b3b3b3b3b"
+        roles:
+          type: array
+          description: Роли пользователя
+          items:
+            type: string
+          example: ["USER", "ADMIN"]
+        emailVerified:
+          type: boolean
+          description: Подтвержден ли email
+          example: true
 
     # ------------------------------------------
     # Данные текущего пользователя
@@ -250,18 +273,25 @@ components:
     CurrentUserResponse:
       type: object
       required:
-        - id
+        - userUid           # Изменено с id на userUid
+        - keycloakUserId    # Добавлено
         - email
         - firstName
         - lastName
         - status
         - createdAt
+        - roles             # Добавлено
+        - emailVerified     # Добавлено
       properties:
-        id:
+        userUid:
           type: string
           format: uuid
-          description: ID пользователя
+          description: Доменный идентификатор пользователя
           example: "550e8400-e29b-41d4-a716-446655440000"
+        keycloakUserId:
+          type: string
+          description: Идентификатор пользователя в Keycloak
+          example: "f3b3b3b3-3b3b-3b3b-3b3b-3b3b3b3b3b3b"
         email:
           type: string
           format: email
@@ -284,6 +314,16 @@ components:
             - BLOCKED
             - ARCHIVED
           example: "ACTIVE"
+        roles:
+          type: array
+          description: Роли пользователя
+          items:
+            type: string
+          example: ["USER"]
+        emailVerified:
+          type: boolean
+          description: Подтвержден ли email
+          example: true
         createdAt:
           type: string
           format: date-time

@@ -45,6 +45,9 @@ keycloak:
   realm: ${KEYCLOAK_REALM:individual}
 
 
+person-service:
+  base-url: ${PERSONS_SERVICE_URL:http://localhost:8092}
+
 springdoc:
   swagger-ui:
     url: /api-docs
