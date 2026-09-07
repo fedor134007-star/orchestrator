@@ -1,44 +1,41 @@
 server:
   port: 8092
+  shutdown: graceful
 
 spring:
   application:
     name: person-service
 
-  # R2DBC ??? ?????????? ?????? ? PostgreSQL
+  # Рабочий доступ к БД — реактивный (R2DBC, неблокирующий драйвер)
   r2dbc:
     url: r2dbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5434}/${POSTGRES_DB:person}
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:postgres}
     pool:
       enabled: true
-      initial-size: 10
+      initial-size: 5
       max-size: 20
       max-idle-time: 30m
       validation-query: SELECT 1
 
-
-
-
-  # Flyway ??? ???????? (?????????? JDBC)
-  flyway:
+  # JDBC-подключение нужно только Flyway: миграции применяются синхронно при старте,
+  # до того как сервис начнёт принимать запросы. Схему person выставляет default-schema.
+  datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5434}/${POSTGRES_DB:person}
-    user: ${POSTGRES_USER:postgres}
+    username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:postgres}
+    hikari:
+      pool-name: person-service-flyway-pool
+      maximum-pool-size: 2
+      minimum-idle: 1
+
+  flyway:
+    enabled: true
     locations: classpath:db/migration
-
-  # Security (???? ????? resource server)
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          issuer-uri: ${KEYCLOAK_URL:http://localhost:8080}/realms/${KEYCLOAK_REALM:individual}
-          jwk-set-uri: ${KEYCLOAK_URL:http://localhost:8080}/realms/${KEYCLOAK_REALM:individual}/protocol/openid-connect/certs
-
-  keycloak:
-    client-id: ${KEYCLOAK_CLIENT_ID:person-service}
-    client-secret: ${KEYCLOAK_CLIENT_SECRET:VUZnqCwNqyGdze8wTFa7EbMi0LSbQhGv}
-    realm: ${KEYCLOAK_REALM:individual}
+    schemas: person
+    default-schema: person
+    validate-on-migrate: true
+    clean-disabled: true
 
 management:
   endpoints:
@@ -52,43 +49,24 @@ management:
         enabled: true
     prometheus:
       access: read_only
-  prometheus:
-    metrics:
-      export:
-        enabled: true
   tracing:
-    enabled: true
     sampling:
-      probability: 1.0
-  health:
-    db:
-      enabled: true
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+  opentelemetry:
+    resource-attributes:
+      service.name: ${spring.application.name}
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_EXPORTER_ENDPOINT:http://localhost:4318/v1/traces}
 
-otel:
-  exporter:
-    otlp:
-      endpoint: ${OTLP_EXPORTER_ENDPOINT:http://localhost:4318}
-      protocol: http/protobuf
-  logs:
-    exporter: none
-  metrics:
-    exporter: none
+info:
+  app:
+    name: ${spring.application.name}
+    description: Person domain service (module 2, WebFlux + R2DBC)
+    version: 1.0.0
 
 logging:
-  config: "classpath:logback.xml"
   level:
-    org.springframework.r2dbc: DEBUG
-    io.r2dbc.postgresql: DEBUG
-    org.flywaydb: DEBUG
-
-springdoc:
-  swagger-ui:
-    url: /api-docs
-    path: /swagger-ui.html
-    try-it-out-enabled: true
-    operations-sorter: method
-    tags-sorter: alpha
-    doc-expansion: none
-  api-docs:
-    path: /api-docs
-    enabled: true
+    root: INFO
+    com.example.persons_service: DEBUG

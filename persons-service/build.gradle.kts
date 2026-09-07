@@ -1,40 +1,38 @@
-import org.openapitools.generator.gradle.plugin.tasks.GenerateTask
 import org.gradle.api.publish.maven.MavenPublication
+import org.springframework.boot.gradle.tasks.bundling.BootJar
 
-val versions = mapOf(
-    "mapstructVersion" to "1.5.5.Final",
-    "springdocOpenapiStarterWebmvcUiVersion" to "2.5.0",
-    "javaxAnnotationApiVersion" to "1.3.2",
-    "javaxValidationApiVersion" to "2.0.0.Final",
-    "comGoogleCodeFindbugs" to "3.0.2",
-    "springCloudStarterOpenfeign" to "4.1.1",
-    "javaxServletApiVersion" to "2.5",
-    "logbackClassicVersion" to "1.5.38",
-    "hibernateEnversVersion" to "6.4.4.Final",
-    "testContainersVersion" to "1.19.3",
-    "junitJupiterVersion" to "5.10.0",
-    "feignMicrometerVersion" to "13.6",
-    "swagger" to "3.0.3",
-    "webfluxTest" to "4.1.0",
-    "keycloakTest" to "3.3.1",
-    "flywayVersion" to "10.20.1",
-    "postgresqlVersion" to "42.7.4",
-    "r2dbcVersion" to "1.0.0.RELEASE",
-    "testContainersPostgresqlVersion" to "1.19.8"
-)
+/*
+ * person-service (модуль 2) на WebFlux + R2DBC
+ * ─────────────────────────────────────────────────────────────
+ *  • Spring Boot 4.0.7 / Java 25, реактивный HTTP (WebFlux) и неблокирующий доступ к БД (R2DBC)
+ *  • Контракт-first: openapi/person-service.yaml → реактивные серверные интерфейсы (delegatePattern)
+ *    и клиентский артефакт person-service-client (spring-http-interface, НЕ OpenFeign)
+ *  • Flyway выполняется по JDBC на старте (для миграций это нормально), приложение работает по R2DBC
+ *  • Аудит — собственный реактивный writer вместо Hibernate Envers:
+ *    Envers является частью Hibernate ORM (блокирующий JPA) и с R2DBC несовместим
+ *  • Публикация клиента в Nexus: snapshots/releases (group-адрес — на стороне потребителя)
+ *
+ * Генерация выполняется CLI-ядром openapi-generator 7.26.0, а не gradle-плагином:
+ * плагин заморожен на 7.14.0 и не поддерживает useSpringBoot4.
+ */
 
 plugins {
     idea
     java
+    jacoco
     id("org.springframework.boot") version "4.0.7"
     id("io.spring.dependency-management") version "1.1.7"
     id("maven-publish")
-    id("org.openapi.generator") version "7.13.0"
 }
 
 group = "net.example"
 version = "1.0.0-SNAPSHOT"
-description = "Persons domain service for study project"
+description = "Person domain service on WebFlux + R2DBC: aggregate users + addresses + individuals"
+
+val openApiGeneratorVersion = "7.26.0"
+val springBootVersion = "4.0.7"
+val logstashEncoderVersion = "9.0"
+val jacocoVersion = "0.8.15"
 
 java {
     toolchain {
@@ -46,269 +44,280 @@ repositories {
     mavenCentral()
 }
 
-dependencyManagement {
-    imports {
-        mavenBom("org.springframework.cloud:spring-cloud-dependencies:2025.1.2")
-        mavenBom("io.opentelemetry.instrumentation:opentelemetry-instrumentation-bom:2.29.0")
-    }
+// ============================================================
+// OpenAPI generation
+// ============================================================
+
+val openApiGeneratorCli: Configuration by configurations.creating
+
+val specFile = layout.projectDirectory.file("openapi/person-service.yaml")
+val serverGenDir = layout.buildDirectory.dir("generated/openapi/server")
+val clientGenDir = layout.buildDirectory.dir("generated/openapi/client")
+val serverJavaDir = serverGenDir.map { it.dir("src/main/java") }
+val clientJavaDir = clientGenDir.map { it.dir("src/main/java") }
+
+// Клиентский код живёт в отдельном source set: он компилируется без основного кода
+// и упаковывается в самостоятельный артефакт person-service-client.
+val clientSourceSet = sourceSets.create("client") {
+    java.srcDir(clientJavaDir)
 }
 
-configurations.all { resolutionStrategy.cacheChangingModulesFor(0, "seconds") }
+sourceSets.named("main") {
+    java.srcDir(serverJavaDir)
+}
+
+// ============================================================
+// Dependencies
+// ============================================================
 
 dependencies {
-    // SPRING
-    implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:${versions["swagger"]}")
-    implementation("org.springframework.boot:spring-boot-starter-webflux")
-    implementation("org.springframework.boot:spring-boot-starter-actuator")
-    implementation("org.springframework.cloud:spring-cloud-starter-openfeign:${versions["springCloudStarterOpenfeign"]}")
-    implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
-    implementation("org.springframework.boot:spring-boot-starter-security")
+    openApiGeneratorCli("org.openapitools:openapi-generator-cli:$openApiGeneratorVersion")
 
-    // DATABASE - PostgreSQL
+    // WEB — реактивный стек
+    implementation("org.springframework.boot:spring-boot-starter-webflux")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
+
+    // PERSISTENCE — R2DBC как рабочий доступ к БД
     implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
+    implementation("io.r2dbc:r2dbc-pool")
     implementation("org.postgresql:r2dbc-postgresql")
-    implementation("org.postgresql:postgresql:${versions["postgresqlVersion"]}")
-    implementation("org.flywaydb:flyway-core:${versions["flywayVersion"]}")
-    implementation("org.flywaydb:flyway-database-postgresql:${versions["flywayVersion"]}")
+
+    // Flyway по JDBC: миграции выполняются синхронно при старте, до подъёма HTTP-сервера
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
+    implementation("org.flywaydb:flyway-core")
+    implementation("org.flywaydb:flyway-database-postgresql")
+    runtimeOnly("org.postgresql:postgresql")
 
     // OBSERVABILITY
-    implementation("io.micrometer:micrometer-registry-prometheus")
-    implementation("io.github.openfeign:feign-micrometer:${versions["feignMicrometerVersion"]}")
-    implementation("io.opentelemetry:opentelemetry-exporter-otlp")
-    implementation("io.micrometer:micrometer-observation")
-    implementation("io.micrometer:micrometer-tracing")
-    implementation("io.micrometer:micrometer-tracing-bridge-otel")
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")
-    implementation("io.opentelemetry.instrumentation:opentelemetry-spring-boot-starter")
-    implementation("ch.qos.logback:logback-classic:${versions["logbackClassicVersion"]}")
+    implementation("net.logstash.logback:logstash-logback-encoder:$logstashEncoderVersion")
 
-    // HELPERS
-    compileOnly("org.projectlombok:lombok")
-    compileOnly("org.mapstruct:mapstruct:${versions["mapstructVersion"]}")
-    compileOnly("com.google.code.findbugs:jsr305:${versions["comGoogleCodeFindbugs"]}")
-    annotationProcessor("org.projectlombok:lombok")
-    annotationProcessor("org.mapstruct:mapstruct-processor:${versions["mapstructVersion"]}")
-    implementation("javax.validation:validation-api:${versions["javaxValidationApiVersion"]}")
-    implementation("javax.annotation:javax.annotation-api:${versions["javaxAnnotationApiVersion"]}")
+    // CLIENT SOURCE SET — содержимое публикуемого артефакта person-service-client
+    "clientImplementation"("org.springframework.boot:spring-boot-starter-restclient")
+    "clientImplementation"("org.springframework.boot:spring-boot-starter-validation")
 
     // TEST
     testImplementation("org.springframework.boot:spring-boot-starter-test")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    testCompileOnly("org.projectlombok:lombok")
-    testAnnotationProcessor("org.projectlombok:lombok")
-    testImplementation("org.junit.jupiter:junit-jupiter:${versions["junitJupiterVersion"]}")
+    // В Boot 4 поддержка WebTestClient вынесена в отдельный модуль
+    testImplementation("org.springframework.boot:spring-boot-webtestclient")
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation("org.testcontainers:testcontainers-postgresql")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testImplementation("io.projectreactor:reactor-test")
-    testImplementation("org.springframework.security:spring-security-test")
-    testImplementation("com.github.dasniko:testcontainers-keycloak:${versions["keycloakTest"]}")
-    testImplementation("org.springframework.boot:spring-boot-starter-webflux")
-    testImplementation("org.springframework.boot:spring-boot-starter-test")
-
-    // TestContainers для PostgreSQL
-    testImplementation("org.testcontainers:postgresql:${versions["testContainersPostgresqlVersion"]}")
-    testImplementation("org.testcontainers:junit-jupiter:${versions["testContainersPostgresqlVersion"]}")
-    testImplementation("org.testcontainers:testcontainers:${versions["testContainersPostgresqlVersion"]}")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-tasks.withType<Test> {
-    useJUnitPlatform()
-}
+// ============================================================
+// Generation tasks
+// ============================================================
 
 /*
-──────────────────────────────────────────────────────
-============== Api generation ==============
-──────────────────────────────────────────────────────
-*/
-
-val openApiDir = file("${rootDir}/openapi")
-
-val foundSpecifications = openApiDir.listFiles { f -> f.extension in listOf("yaml", "yml") } ?: emptyArray()
-logger.lifecycle("Found ${foundSpecifications.size} specifications: " + foundSpecifications.joinToString { it.name })
-
-foundSpecifications.forEach { specFile ->
-    val ourDir = getAbsolutePath(specFile.nameWithoutExtension)
-    val packageName = defineJavaPackageName(specFile.nameWithoutExtension)
-
-    val taskName = buildGenerateApiTaskName(specFile.nameWithoutExtension)
-    logger.lifecycle("Register task ${taskName} from ${ourDir.get()}")
-    val basePackage = "net.generated.${packageName}"
-
-    tasks.register(taskName, GenerateTask::class) {
-        generatorName.set("spring")
-        inputSpec.set(specFile.absolutePath)
-        outputDir.set(ourDir)
-
-        configOptions.set(
-            mapOf(
-                "library" to "spring-boot",
-                "reactive" to "true",
-                "delegatePattern" to "false",
-                "skipDefaultInterface" to "true",
-                "useBeanValidation" to "true",
-                "openApiNullable" to "false",
-                "useFeignClientUrl" to "true",
-                "useTags" to "true",
-                "apiPackage" to "${basePackage}.api",
-                "modelPackage" to "${basePackage}.dto",
-                "configPackage" to "${basePackage}.config",
-                "generateSupportingFiles" to "false",
-                "interfaceOnly" to "true",
-            )
-        )
-
-        doFirst {
-            logger.lifecycle("$taskName: starting generation from ${specFile.name}")
-        }
-    }
-}
-
-
-fun getAbsolutePath(nameWithoutExtension: String): Provider<String> {
-    return layout.buildDirectory
-        .dir("generated-sources/openapi/${nameWithoutExtension}")
-        .map { it.asFile.absolutePath }
-}
-
-fun defineJavaPackageName(name: String): String {
-    val beforeDash = name.substringBefore('-')
-    val match = Regex("^[a-z]+").find(beforeDash)
-    return match?.value ?: beforeDash.lowercase()
-}
-
-fun buildGenerateApiTaskName(name: String): String {
-    return buildTaskName("generate", name)
-}
-
-fun buildJarTaskName(name: String): String {
-    return buildTaskName("jar", name)
-}
-
-fun buildTaskName(taskPrefix: String, name: String): String {
-    val prepareName = name
-        .split(Regex("[^A-Za-z0-9]"))
-        .filter { it.isNotBlank() }
-        .joinToString("") { it.replaceFirstChar(Char::uppercase) }
-
-    return "${taskPrefix}-${prepareName}"
-}
-
-val withoutExtensionNames = foundSpecifications.map { it.nameWithoutExtension }
-
-sourceSets.named("main") {
-    withoutExtensionNames.forEach { name ->
-        java.srcDir(layout.buildDirectory.dir("generated-sources/openapi/$name/src/main/java"))
-    }
-}
-
-tasks.register("generateAllOpenApi") {
-    foundSpecifications.forEach { specFile ->
-        dependsOn(buildGenerateApiTaskName(specFile.nameWithoutExtension))
-    }
+ * Генератор всегда пишет вспомогательные файлы (свой pom, README, демо-приложение
+ * org.openapitools.*, application.properties). Фильтр supportingFiles использовать нельзя:
+ * вместе с мусором он выкидывает ApiUtil.java, на который ссылается сгенерированный delegate.
+ * Поэтому генерируем всё и детерминированно вычищаем лишнее.
+ */
+fun JavaExec.removeGeneratedNoise(outDir: String) {
     doLast {
-        logger.lifecycle("generateAllOpenApi: all specifications has been generated")
+        listOf(
+            "$outDir/pom.xml",
+            "$outDir/README.md",
+            "$outDir/.openapi-generator",
+            "$outDir/.openapi-generator-ignore",
+            "$outDir/src/test",
+            "$outDir/src/main/resources",
+            "$outDir/src/main/java/org"
+        ).forEach { project.delete(it) }
     }
 }
 
-tasks.named("compileJava") {
-    dependsOn("generateAllOpenApi")
-}
+val generateServerApi by tasks.registering(JavaExec::class) {
+    group = "openapi"
+    description = "Генерирует реактивные серверные интерфейсы person-service в build/generated/openapi/server"
 
-/*
-──────────────────────────────────────────────────────
-============== Building jars ==============
-──────────────────────────────────────────────────────
-*/
+    classpath = openApiGeneratorCli
+    mainClass.set("org.openapitools.codegen.OpenAPIGenerator")
 
-tasks.named("build") {
-    dependsOn(generatedJars)
-}
+    inputs.file(specFile)
+    outputs.dir(serverGenDir)
 
-val generatedJars = foundSpecifications.map { specFile ->
-    val name = specFile.nameWithoutExtension
-    val generateTaskName = buildGenerateApiTaskName(name)
-    val jarTaskName = buildJarTaskName(name)
-    val outDirProvider = getAbsolutePath(name)
-    val generateSrcDir = outDirProvider.map { File(it).resolve("src/main/java") }
-
-    val sourcesSetName = name
-
-    val sourceSet = sourceSets.create(sourcesSetName) {
-        java.srcDir(generateSrcDir)
-        compileClasspath += sourceSets["main"].compileClasspath
-    }
-
-    val compileTaskName = "compile${sourcesSetName.replaceFirstChar(Char::uppercase)}Java"
-    tasks.register<JavaCompile>(compileTaskName) {
-        source = sourceSet.java
-        classpath = sourceSet.compileClasspath
-        destinationDirectory.set(layout.buildDirectory.dir("classes/${sourcesSetName}"))
-        dependsOn(generateTaskName)
-    }
-
-    tasks.register<Jar>(jarTaskName) {
-        group = "build"
-        archiveBaseName.set(name)
-        destinationDirectory.set(layout.buildDirectory.dir("libs"))
-
-        val classOutput = layout.buildDirectory.dir("classes/${sourcesSetName}")
-        from(classOutput)
-        dependsOn(compileTaskName)
-
-        doFirst {
-            println("Building JAR for $name from compiled classes in ${classOutput.get().asFile}")
-        }
-    }
-}
-
-/*
-──────────────────────────────────────────────────────
-============== Resolve NEXUS credentials ==============
-──────────────────────────────────────────────────────
-*/
-
-file(".env").takeIf { it.exists() }?.readLines()?.forEach {
-    val (k, v) = it.split("=", limit = 2)
-    System.setProperty(k.trim(), v.trim())
-    logger.lifecycle("${k.trim()}=${v.trim()}")
-}
-
-val nexusUrl = System.getenv("NEXUS_URL") ?: System.getProperty("NEXUS_URL")
-val nexusUser = System.getenv("NEXUS_USERNAME") ?: System.getProperty("NEXUS_USERNAME")
-val nexusPassword = System.getenv("NEXUS_PASSWORD") ?: System.getProperty("NEXUS_PASSWORD")
-
-if (nexusUrl.isNullOrBlank() || nexusUser.isNullOrBlank() || nexusPassword.isNullOrBlank()) {
-    throw GradleException(
-        "NEXUS details are not set. Create a .env file with correct properties: " +
-                "NEXUS_URL, NEXUS_USERNAME, NEXUS_PASSWORD"
+    val outDir = serverGenDir.get().asFile.absolutePath
+    args(
+        "generate",
+        "-g", "spring",
+        "-i", specFile.asFile.absolutePath,
+        "-o", outDir,
+        "--global-property", "apiDocs=false,modelDocs=false,apiTests=false,modelTests=false",
+        "-p", "library=spring-boot," +
+                "reactive=true," +
+                "annotationLibrary=none," +
+                "documentationProvider=none," +
+                "interfaceOnly=false," +
+                "delegatePattern=true," +
+                "useSpringBoot4=true," +
+                "useBeanValidation=true," +
+                "openApiNullable=false," +
+                "useTags=true," +
+                "apiPackage=net.example.person.api," +
+                "modelPackage=net.example.person.dto"
     )
+
+    doFirst { project.delete(outDir) }
+    removeGeneratedNoise(outDir)
 }
 
-/*
-──────────────────────────────────────────────────────
-============== Nexus Publishing ==============
-──────────────────────────────────────────────────────
-*/
+val generateClientApi by tasks.registering(JavaExec::class) {
+    group = "openapi"
+    description = "Генерирует клиент person-service-client (HTTP Service Clients) в build/generated/openapi/client"
+
+    classpath = openApiGeneratorCli
+    mainClass.set("org.openapitools.codegen.OpenAPIGenerator")
+
+    inputs.file(specFile)
+    outputs.dir(clientGenDir)
+
+    val outDir = clientGenDir.get().asFile.absolutePath
+    args(
+        "generate",
+        "-g", "spring",
+        "-i", specFile.asFile.absolutePath,
+        "-o", outDir,
+        "--global-property", "apiDocs=false,modelDocs=false,apiTests=false,modelTests=false",
+        "-p", "library=spring-http-interface," +
+                "useSpringBoot4=true," +
+                "useBeanValidation=true," +
+                "openApiNullable=false," +
+                "useTags=true," +
+                "apiPackage=net.example.person.client.api," +
+                "modelPackage=net.example.person.dto"
+    )
+
+    doFirst { project.delete(outDir) }
+    removeGeneratedNoise(outDir)
+}
+
+tasks.named<JavaCompile>("compileJava") {
+    dependsOn(generateServerApi)
+}
+
+tasks.named<JavaCompile>("compileClientJava") {
+    dependsOn(generateClientApi)
+}
+
+val generateOpenApi by tasks.registering {
+    group = "openapi"
+    description = "Генерирует серверный и клиентский код из OpenAPI-контракта"
+    dependsOn(generateServerApi, generateClientApi)
+}
+
+// ============================================================
+// Исполняемый артефакт сервиса
+// ============================================================
+
+tasks.named<BootJar>("bootJar") {
+    // Детерминированное имя: Dockerfile копирует конкретный файл,
+    // и в build/libs не появляется второй jar, ломающий COPY.
+    archiveFileName.set("person-service.jar")
+}
+
+// Плоский jar не публикуется: единственный исполняемый артефакт — bootJar
+tasks.named<Jar>("jar") {
+    enabled = false
+}
+
+// ============================================================
+// Публикуемый клиентский артефакт
+// ============================================================
+
+val clientJar by tasks.registering(Jar::class) {
+    group = "build"
+    description = "Собирает person-service-client"
+    archiveBaseName.set("person-service-client")
+    archiveClassifier.set("")
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
+    from(clientSourceSet.output)
+    dependsOn(tasks.named("clientClasses"))
+}
+
+val clientSourcesJar by tasks.registering(Jar::class) {
+    group = "build"
+    description = "Собирает person-service-client-sources"
+    archiveBaseName.set("person-service-client")
+    archiveClassifier.set("sources")
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
+    from(clientSourceSet.allSource)
+    dependsOn(generateClientApi)
+}
+
+tasks.named("assemble") {
+    dependsOn(clientJar, clientSourcesJar)
+}
+
+// ============================================================
+// Nexus publishing
+// ============================================================
+
+val dotEnv: Map<String, String> = file(".env")
+    .takeIf { it.exists() }
+    ?.readLines()
+    ?.mapNotNull { line ->
+        val trimmed = line.trim()
+        if (trimmed.isEmpty() || trimmed.startsWith("#") || !trimmed.contains("=")) null
+        else trimmed.substringBefore("=").trim() to trimmed.substringAfter("=").trim()
+    }
+    ?.toMap()
+    ?: emptyMap()
+
+fun envOrProperty(name: String, default: String? = null): String? =
+    System.getenv(name) ?: System.getProperty(name) ?: dotEnv[name] ?: default
+
+val nexusBaseUrl = envOrProperty("NEXUS_BASE_URL", "http://localhost:8081/repository")!!
+val nexusUsername = envOrProperty("NEXUS_USERNAME", "admin")
+val nexusPassword = envOrProperty("NEXUS_PASSWORD", "admin")
+val isSnapshotVersion = version.toString().endsWith("-SNAPSHOT")
 
 publishing {
     publications {
-        foundSpecifications.forEach { specFile ->
-            val name = specFile.nameWithoutExtension
-            val jarBaseName = name
-            var jarFile = file("build/libs")
-                .listFiles()
-                ?.firstOrNull { it.name.contains(name) && (it.extension == "jar" || it.extension == "zip") }
+        create<MavenPublication>("personServiceClient") {
+            artifactId = "person-service-client"
+            artifact(clientJar)
+            artifact(clientSourcesJar)
 
-            if (jarFile != null) {
-                logger.lifecycle("publishing: ${jarFile.name}")
+            pom {
+                name.set("person-service-client")
+                description.set("OpenAPI generated client for person-service (Spring HTTP Service Clients)")
+                withXml {
+                    // withXml вызывается несколько раз, поэтому манипуляция идемпотентна:
+                    // иначе в POM появляются два dependencyManagement и он становится невалидным.
+                    val root = asNode()
+                    val existingNodes = root.children()
+                        .filterIsInstance<groovy.util.Node>()
+                        .map { it.name().toString() }
+                        .toSet()
 
-                create<MavenPublication>("publish${name.replaceFirstChar(Char::uppercase)}Jar") {
-                    artifact(jarFile)
-                    groupId = "net.proselyte"
-                    artifactId = jarBaseName
-                    version = "1.0.0-SNAPSHOT"
+                    if ("dependencyManagement" !in existingNodes) {
+                        val bom = root.appendNode("dependencyManagement")
+                            .appendNode("dependencies")
+                            .appendNode("dependency")
+                        bom.appendNode("groupId", "org.springframework.boot")
+                        bom.appendNode("artifactId", "spring-boot-dependencies")
+                        bom.appendNode("version", springBootVersion)
+                        bom.appendNode("type", "pom")
+                        bom.appendNode("scope", "import")
+                    }
 
-                    pom {
-                        this.name.set("Generated API $jarBaseName")
-                        this.description.set("OpenAPI generated code for $jarBaseName")
+                    if ("dependencies" !in existingNodes) {
+                        val dependenciesNode = root.appendNode("dependencies")
+                        listOf(
+                            "org.springframework.boot" to "spring-boot-starter-restclient",
+                            "org.springframework.boot" to "spring-boot-starter-validation"
+                        ).forEach { (groupId, artifactId) ->
+                            val dependency = dependenciesNode.appendNode("dependency")
+                            dependency.appendNode("groupId", groupId)
+                            dependency.appendNode("artifactId", artifactId)
+                        }
                     }
                 }
             }
@@ -317,13 +326,72 @@ publishing {
 
     repositories {
         maven {
-            name = "nexus"
-            url = uri(nexusUrl)
+            name = if (isSnapshotVersion) "nexusSnapshots" else "nexusReleases"
+            url = uri("$nexusBaseUrl/${if (isSnapshotVersion) "maven-snapshots" else "maven-releases"}")
             isAllowInsecureProtocol = true
             credentials {
-                username = nexusUser
+                username = nexusUsername
                 password = nexusPassword
             }
         }
     }
+}
+
+// ============================================================
+// Tests и покрытие
+// ============================================================
+
+tasks.withType<Test> {
+    useJUnitPlatform()
+    testLogging {
+        events("passed", "skipped", "failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
+
+jacoco {
+    toolVersion = jacocoVersion
+}
+
+// Сгенерированный код не измеряем: порог 80% относится к рукописному коду
+val coverageExclusions = listOf(
+    "net/example/person/api/**",
+    "net/example/person/dto/**",
+    "net/example/person/client/**",
+    "org/openapitools/**"
+)
+
+fun ConfigurableFileCollection.withoutGenerated(): FileCollection =
+    files(files.map { dir -> fileTree(dir) { exclude(coverageExclusions) } })
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    classDirectories.setFrom(classDirectories.withoutGenerated())
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        csv.required.set(false)
+    }
+}
+
+tasks.jacocoTestCoverageVerification {
+    dependsOn(tasks.test)
+    classDirectories.setFrom(classDirectories.withoutGenerated())
+    violationRules {
+        rule {
+            limit {
+                counter = "LINE"
+                value = "COVEREDRATIO"
+                minimum = "0.80".toBigDecimal()
+            }
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(tasks.jacocoTestCoverageVerification)
+}
+
+tasks.named<Test>("test") {
+    finalizedBy(tasks.jacocoTestReport)
 }

@@ -63,6 +63,12 @@ val nexusUrl = System.getProperty("NEXUS_URL")
     ?: System.getenv("NEXUS_URL")
     ?: "http://localhost:8081/repository/maven"
 
+// Адрес для чтения зависимостей: group-репозиторий Nexus, агрегирующий
+// hosted-репозитории (releases + snapshots) и proxy на Maven Central.
+val nexusGroupUrl = System.getProperty("NEXUS_GROUP_URL")
+    ?: System.getenv("NEXUS_GROUP_URL")
+    ?: "http://localhost:8081/repository/maven-public"
+
 val nexusUser = System.getProperty("NEXUS_USERNAME")
     ?: System.getenv("NEXUS_USERNAME")
     ?: "admin"
@@ -80,9 +86,11 @@ println("👤 NEXUS_USERNAME: $nexusUser")
 repositories {
     mavenCentral()
 
+    // Единый групповой адрес Nexus: так потребитель получает и релизы, и снимки,
+    // не зная, в каком именно hosted-репозитории они лежат.
     maven {
-        name = "nexus"
-        url = uri(nexusUrl)
+        name = "nexusGroup"
+        url = uri(nexusGroupUrl)
         isAllowInsecureProtocol = true
         credentials {
             username = nexusUser
@@ -93,7 +101,6 @@ repositories {
 
 dependencyManagement {
     imports {
-        mavenBom("org.springframework.cloud:spring-cloud-dependencies:2025.1.2")
         mavenBom("io.opentelemetry.instrumentation:opentelemetry-instrumentation-bom:2.29.0")
     }
 }
@@ -105,13 +112,11 @@ dependencies {
     implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:${versions["swagger"]}")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
-    implementation("org.springframework.cloud:spring-cloud-starter-openfeign:${versions["springCloudStarterOpenfeign"]}")
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
     implementation("org.springframework.boot:spring-boot-starter-security")
 
     // OBSERVABILITY
     implementation("io.micrometer:micrometer-registry-prometheus")
-    implementation("io.github.openfeign:feign-micrometer:${versions["feignMicrometerVersion"]}")
     implementation("io.opentelemetry:opentelemetry-exporter-otlp")
     implementation("io.micrometer:micrometer-observation")
     implementation("io.micrometer:micrometer-tracing")
@@ -142,8 +147,9 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 
 
-    // PERSON SERVICE CLIENT (из Nexus)
-    implementation("net.proselyte:person-service:1.0.0-SNAPSHOT")
+    // PERSON SERVICE CLIENT (из Nexus): сгенерированный клиент на Spring HTTP Service Clients.
+    // OpenFeign не используется — в Spring он считается функционально завершённым.
+    implementation("net.example:person-service-client:1.0.0-SNAPSHOT")
 
 }
 

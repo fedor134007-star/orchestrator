@@ -29,7 +29,7 @@ public class TokenServiceImpl implements TokenService {
                 .flatMap(tokenResponse -> {
                     return personsClient.getPersonByEmail(request.getEmail())
                             .map(personData -> {
-                                tokenResponse.setUserUid(personData.getUserUid());
+                                tokenResponse.setUserUid(personData.getId());
                                 return tokenResponse;
                             })
                             .switchIfEmpty(Mono.just(tokenResponse));
@@ -50,7 +50,7 @@ public class TokenServiceImpl implements TokenService {
                                     String email = currentUser.getEmail();
                                     return personsClient.getPersonByEmail(email)
                                             .map(personData -> {
-                                                tokenResponse.setUserUid(personData.getUserUid());
+                                                tokenResponse.setUserUid(personData.getId());
                                                 return tokenResponse;
                                             })
                                             .switchIfEmpty(Mono.just(tokenResponse));
