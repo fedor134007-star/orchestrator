@@ -5,19 +5,15 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="332dac14-fbeb-4775-8de7-dbb37d4a8739" name="Changes" comment="Merge pull request #1 from fedor134007-star/fix/registrationg&#10;&#10;fix: add idempotent registration and secure logging">
-      <change afterPath="$PROJECT_DIR$/.idea/IntelliLang.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/persons-service/src/main/resources/db/migration/V002__init_all_tables.sql" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources/3c21bf9e-1d95-4c6b-a0b7-fb2426cc4315.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources/3c21bf9e-1d95-4c6b-a0b7-fb2426cc4315.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_07_09_2026,_23_16_[Changes]/shelved.patch" beforeDir="false" />
+      <change afterPath="$PROJECT_DIR$/diagram.puml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/persons-service/diagram.puml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/client/PersonsClient.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/client/PersonsClient.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/client/PersonsClientImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/client/PersonsClientImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/service/TokenServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/service/TokenServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/service/UserServiceImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/individuals-api/src/main/java/com/example/individuals_api/service/UserServiceImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/persons-service/openapi/person-service.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/persons-service/openapi/person-service.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/persons-service/src/main/java/com/example/persons_service/controller/PersonController.java" beforeDir="false" afterPath="$PROJECT_DIR$/persons-service/src/main/java/com/example/persons_service/controller/PersonController.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/persons-service/src/main/java/com/example/persons_service/service/PersonService.java" beforeDir="false" afterPath="$PROJECT_DIR$/persons-service/src/main/java/com/example/persons_service/service/PersonService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/persons-service/src/main/resources/db/migration/V001__init_person_schema.sql" beforeDir="false" afterPath="$PROJECT_DIR$/persons-service/src/main/resources/db/migration/V001__init_person_schema.sql" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docker-compose.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/docker-compose.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infrastructure/alloy/config.alloy" beforeDir="false" afterPath="$PROJECT_DIR$/infrastructure/alloy/config.alloy" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infrastructure/grafana/provisioning/dashboards/dashboards.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/infrastructure/grafana/provisioning/dashboards/dashboards.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infrastructure/grafana/provisioning/datasources/datasources.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/infrastructure/grafana/provisioning/datasources/datasources.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/persons-service/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/persons-service/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/persons-service/src/main/resources/application.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/persons-service/src/main/resources/application.yaml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -61,6 +57,12 @@
   </component>
   <component name="GitHubPullRequestSearchHistory">{
   &quot;lastFilter&quot;: {}
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;git@github.com:fedor134007-star/orchestrator.git&quot;,
+    &quot;accountId&quot;: &quot;ed36d463-03b7-4d9b-ab7e-f84cbbe540d1&quot;
+  }
 }</component>
   <component name="GradleScriptDefinitionsStorage" workingDir="$PROJECT_DIR$" gradleHome="$USER_HOME$/.gradle/wrapper/dists/gradle-9.2.0-bin/11i5gvueggl8a5cioxuftxrik/gradle-9.2.0" javaHome="/Library/Java/JavaVirtualMachines/jdk-25.jdk/Contents/Home" gradleVersion="9.2.0" />
   <component name="KubernetesApiPersistence">{}</component>
@@ -168,6 +170,7 @@
     <attachedChunks>
       <set>
         <option value="bundled-jdk-9823dce3aa75-bf35d07a577b-intellij.indexing.shared.core-IU-252.28238.7" />
+        <option value="bundled-js-predefined-d6986cc7102b-a71380e98a7c-JavaScript-IU-252.28238.7" />
       </set>
     </attachedChunks>
   </component>
@@ -180,7 +183,8 @@
       <updated>1784236760046</updated>
       <workItem from="1784236761372" duration="2706000" />
       <workItem from="1784239540829" duration="1274000" />
-      <workItem from="1788903445678" duration="597000" />
+      <workItem from="1788903445678" duration="2778000" />
+      <workItem from="1791876421626" duration="959000" />
     </task>
     <task id="LOCAL-00001" summary="first commit">
       <option name="closed" value="true" />
@@ -219,6 +223,7 @@
     <MESSAGE value="commit" />
     <MESSAGE value="first commit" />
     <MESSAGE value="Merge pull request #1 from fedor134007-star/fix/registrationg&#10;&#10;fix: add idempotent registration and secure logging" />
-    <option name="LAST_COMMIT_MESSAGE" value="Merge pull request #1 from fedor134007-star/fix/registrationg&#10;&#10;fix: add idempotent registration and secure logging" />
+    <MESSAGE value="Merge remote-tracking branch 'origin/user-service' into user-service" />
+    <option name="LAST_COMMIT_MESSAGE" value="Merge remote-tracking branch 'origin/user-service' into user-service" />
   </component>
 </project>

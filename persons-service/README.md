@@ -184,7 +184,20 @@ cd persons-service && ./gradlew publish
 * трейсы — OTLP/HTTP в Alloy (`http://alloy:4318/v1/traces`), дальше Tempo, визуализация в Grafana;
 * JSON-логи ([`logback-spring.xml`](src/main/resources/logback-spring.xml)) с `traceId`, `spanId`,
   `service.name`: журнал, метрика и трасса сопоставляются по одному запросу.
-  Профиль `plain` переключает вывод на человекочитаемый формат.
+  Профиль `plain` переключает вывод на человекочитаемый формат;
+* `traceId`/`spanId` попадают в логи благодаря `spring.reactor.context-propagation=auto`:
+  в реактивном стеке MDC не переносится между операторами Reactor, без этой настройки
+  корреляция логов с трейсами не работала.
+
+Путь логов в Grafana: контейнер пишет JSON в stdout → Alloy (config.alloy) разбирает его
+`stage.json` и поднимает в labels `level`, `logger`, `trace_id`, `span_id`, а строкой лога
+делает поле `message` → Loki → Grafana. Дашборд **«Логи микросервисов»** (uid `person-service-logs`,
+папка Observability) отдаёт объём логов по уровню, ошибки и все логи; по `trace_id` строки
+связаны с трейсом в Tempo.
+
+Метрики отдаёт Prometheus; дублирующий OTLP-экспорт метрик отключён
+(`management.otlp.metrics.export.enabled=false`), иначе Micrometer каждую минуту безуспешно
+шлёт их в `localhost:4318` внутри контейнера и засоряет логи WARN-строками.
 
 Особенность реактивного стека: `userId` не кладётся в MDC — в WebFlux нет потока, привязанного
 к запросу, и MDC не переносится между операторами без отдельной контекстной пропагации.
