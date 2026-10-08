@@ -1,9 +1,13 @@
 FROM gradle:9.5.1-jdk25 AS build
-ARG NEXUS_URL=http://host.docker.internal:8081/repository/maven-snapshots
+# NEXUS_URL — hosted-репозиторий (публикация), NEXUS_GROUP_URL — групповой адрес для чтения
+# зависимостей: именно оттуда забирается артефакт person-service-client.
+ARG NEXUS_URL=http://host.docker.internal:8081/repository/maven
+ARG NEXUS_GROUP_URL=http://host.docker.internal:8081/repository/maven-public
 ARG NEXUS_USERNAME=admin
 ARG NEXUS_PASSWORD=admin
 
 ENV NEXUS_URL=${NEXUS_URL}
+ENV NEXUS_GROUP_URL=${NEXUS_GROUP_URL}
 ENV NEXUS_USERNAME=${NEXUS_USERNAME}
 ENV NEXUS_PASSWORD=${NEXUS_PASSWORD}
 

@@ -5,6 +5,11 @@ services:
     build:
       context: ./individuals-api
       dockerfile: Dockerfile
+      args:
+        NEXUS_URL: ${NEXUS_URL:-http://host.docker.internal:8081/repository/maven}
+        NEXUS_GROUP_URL: ${NEXUS_GROUP_URL:-http://host.docker.internal:8081/repository/maven-public}
+        NEXUS_USERNAME: ${NEXUS_USERNAME:-admin}
+        NEXUS_PASSWORD: ${NEXUS_PASSWORD:-admin}
     container_name: individuals-api
     environment:
       KEYCLOAK_URL: http://keycloak:8080
@@ -14,12 +19,16 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       PERSONS_API_HOST: persons-service
       PERSONS_SERVICE_URL: http://persons-service:8092
-      OTLP_EXPORTER_ENDPOINT: http://tempo:4318
+      # OTLP/HTTP приёмник — Alloy (у Tempo нет слушателя на 4318)
+      OTLP_EXPORTER_ENDPOINT: http://alloy:4318
     ports:
       - "8091:8091"
 
     depends_on:
       nexus:
+        condition: service_healthy
+      # persons-service вызывается на каждом запросе: стартуем после его готовности
+      persons-service:
         condition: service_healthy
     healthcheck:
       test: [ "CMD-SHELL", "curl -fsS http://localhost:8091/actuator/health || exit 1" ]
@@ -85,35 +94,36 @@ services:
     ports:
       - "9189:9187"
 
-  # персон сервис
+  # person-service (модуль 2): источник правды по пользовательским данным
   persons-service:
     build:
       context: ./persons-service
       dockerfile: Dockerfile
     container_name: persons-service
     ports:
+      # 8092 — адрес, на котором сервис слушает (и куда смотрит individuals-api)
       - "8092:8092"
-    working_dir: /app
+      # 8082 — алиас, чтобы команды проверки из ТЗ модуля 2 работали как есть
+      - "8082:8092"
     environment:
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: individual
-      KEYCLOAK_CLIENT_SECRET: VUZnqCwNqyGdze8wTFa7EbMi0LSbQhGv
-      KEYCLOAK_CLIENT_ID: person-service
+      # Сервис не знает о Keycloak: только БД и телеметрия.
       POSTGRES_HOST: person-service-postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: person
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      SPRING_PROFILES_ACTIVE: docker
-      OTLP_EXPORTER_ENDPOINT: http://tempo:4318
+      # OTLP/HTTP приёмник — Alloy, который перекладывает трейсы в Tempo
+      OTLP_EXPORTER_ENDPOINT: http://alloy:4318/v1/traces
+      TRACING_SAMPLING_PROBABILITY: "1.0"
     depends_on:
       person-service-postgres:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "curl", "-i", "http://localhost:8092/actuator/health" ]
-      interval: 5s
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:8092/actuator/health || exit 1" ]
+      interval: 10s
       timeout: 5s
-      retries: 30
+      retries: 12
+      start_period: 40s
 
   # для person service database
   person-service-postgres:
@@ -123,8 +133,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: person
-    volumes:
-      - ./infrastructure/databases/person:/docker-entrypoint-initdb.d:ro
     ports:
       - "5434:5432"
     healthcheck:
@@ -141,7 +149,7 @@ services:
       person-service-postgres:
         condition: service_healthy
     environment:
-      DATA_SOURCE_NAME: postgresql://postgres:postgres@person-service-postgres:5432/postgres?sslmode=disable
+      DATA_SOURCE_NAME: postgresql://postgres:postgres@person-service-postgres:5432/person?sslmode=disable
     ports:
       - "9188:9187"
 
@@ -248,7 +256,6 @@ services:
     volumes:
       - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning
       - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards
-      - nexus-data:/nexus-data
     healthcheck:
       test: [ "CMD", "wget", "--spider", "http://localhost:3000/api/health" ]
       interval: 10s

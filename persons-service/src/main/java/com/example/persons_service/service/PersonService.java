@@ -1,22 +1,21 @@
 package com.example.persons_service.service;
 
-import net.generated.person.dto.PersonRegistrationRequest;
-import net.generated.person.dto.PersonResponse;
-import net.generated.person.dto.PersonStatusUpdateRequest;
-import net.generated.person.dto.PersonUpdateRequest;
+import net.example.person.dto.CreateUserRequest;
+import net.example.person.dto.UpdateUserRequest;
+import net.example.person.dto.UserResponse;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
 
 public interface PersonService {
 
-    Mono<PersonResponse> registerPerson(PersonRegistrationRequest request);
+    Mono<UserResponse> createUser(CreateUserRequest request);
 
-    Mono<PersonResponse> getPersonByUid(UUID userUid);
+    Mono<UserResponse> getUserById(UUID id);
 
-    Mono<PersonResponse> getPersonByEmail(String email);
+    Mono<UserResponse> getUserByEmail(String email);
 
-    Mono<PersonResponse> updatePerson(UUID userUid, PersonUpdateRequest request);
+    Mono<UserResponse> updateUser(UUID id, UpdateUserRequest request);
 
-    Mono<PersonResponse> updatePersonStatus(UUID userUid, PersonStatusUpdateRequest request);
+    Mono<Void> deleteUser(UUID id);
 }
