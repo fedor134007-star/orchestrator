@@ -1,17 +1,22 @@
 package com.example.individuals_api.client;
 
+import net.example.person.dto.UserResponse;
 import net.generated.individuals.dto.RegistrationRequest;
-import net.generated.person.dto.PersonResponse;
 import reactor.core.publisher.Mono;
 
+/**
+ * Порт доступа к person-service.
+ *
+ * <p>Оркестратор зависит от этого интерфейса, а не от сгенерированного клиента:
+ * транспорт изолирован в адаптере {@link PersonsClientImpl}, поэтому смена способа
+ * вызова (HTTP Service Clients, WebClient, gRPC) не затрагивает бизнес-логику.</p>
+ */
 public interface PersonsClient {
 
+    Mono<UserResponse> registerPerson(RegistrationRequest registrationRequest);
 
-    Mono<PersonResponse> registerPerson(RegistrationRequest registrationRequest);
-
-
-    Mono<PersonResponse> getPersonByEmail(String email);
-
-
-    Mono<PersonResponse> getPersonByUid(String userUid);
+    /**
+     * @return пользователь или пустой {@link Mono}, если в person-service его нет (404)
+     */
+    Mono<UserResponse> getPersonByEmail(String email);
 }

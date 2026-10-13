@@ -1,10 +1,10 @@
-DOCKER_COMPOSE = docker-compose
+DOCKER_COMPOSE = docker compose
 NEXUS_URL = http://localhost:8081
-INFRA_SERVICES ?= nexus keycloak person-postgres prometheus grafana tempo loki
+INFRA_SERVICES ?= nexus keycloak person-service-postgres prometheus grafana tempo loki alloy
 
-.PHONY: all up start stop clean logs rebuild infra infra-logs infra-stop
+.PHONY: all up start stop clean logs rebuild infra infra-logs infra-stop publish-client
 
-all: up build-artifacts start
+all: up publish-client build-artifacts start
 
 ifeq ($(OS),Windows_NT)
 WAIT_CMD = powershell -Command "while ($$true) { \
@@ -29,8 +29,13 @@ up:
 	@$(WAIT_CMD)
 	@echo "Nexus is healthy!"
 
+# Публикация клиентского артефакта person-service-client в Nexus.
+# Должна выполняться ДО сборки образа individuals-api: он забирает клиент из Nexus.
+publish-client:
+	cd persons-service && ./gradlew publish
+
 build-artifacts:
-	@$(DOCKER_COMPOSE) build persons-api --no-cache
+	@$(DOCKER_COMPOSE) build persons-service --no-cache
 
 start:
 	$(DOCKER_COMPOSE) up -d
@@ -41,7 +46,7 @@ stop:
 clean: stop
 	$(DOCKER_COMPOSE) rm -f
 	docker volume rm $$(docker volume ls -qf dangling=true) 2>/dev/null || true
-	rm -rf ./person-service/build
+	rm -rf ./persons-service/build ./individuals-api/build
 
 logs:
 	$(DOCKER_COMPOSE) logs -f --tail=200

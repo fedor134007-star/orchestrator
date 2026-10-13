@@ -11,7 +11,6 @@ import net.generated.individuals.dto.CurrentUserResponse;
 import net.generated.individuals.dto.LoginRequest;
 import net.generated.individuals.dto.RegistrationRequest;
 import net.generated.individuals.dto.TokenResponse;
-import net.generated.person.dto.PersonResponse;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -39,10 +38,12 @@ public class UserServiceImpl implements UserService {
             return Mono.error(new PasswordMismatchException("Passwords do not match"));
         }
 
-        // 2. Создание доменного пользователя в person-service
+        // 2. Создание доменного пользователя в person-service.
+        // Идентификатор из доменной модели person-service передаётся дальше в Keycloak
+        // как атрибут user_uid — оркестратор остаётся единственной точкой интеграции с Keycloak.
         return personsClient.registerPerson(request)
                 .flatMap(personResponse -> {
-                    String userUid = personResponse.getUserUid().toString();
+                    UUID userUid = personResponse.getId();
                     log.info("Person created with userUid: {}", userUid);
 
                     return keycloakClient.register(request)
@@ -55,7 +56,7 @@ public class UserServiceImpl implements UserService {
 
                                 return tokenService.login(loginRequest)
                                         .map(tokenResponse -> {
-                                            tokenResponse.setUserUid(UUID.fromString(userUid));
+                                            tokenResponse.setUserUid(userUid);
                                             tokenResponse.setKeycloakUserId(keycloakUserId);
                                             return tokenResponse;
                                         });
@@ -87,7 +88,7 @@ public class UserServiceImpl implements UserService {
 
                     return personsClient.getPersonByEmail(email)
                             .map(personData -> {
-                                keycloakData.setUserUid(personData.getUserUid());
+                                keycloakData.setUserUid(personData.getId());
                                 return keycloakData;
                             })
                             .switchIfEmpty(Mono.just(keycloakData));
