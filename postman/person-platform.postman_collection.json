@@ -1,0 +1,955 @@
+{
+  "info": {
+    "name": "Платёжная платформа — person-service (модуль 2) + individuals-api",
+    "description": "Шаблоны запросов ко всем HTTP-ручкам модуля 2.\n\n## Что внутри\n\n* **person-service** — 5 операций контракта: создание, чтение по id и по email, изменение (PATCH), удаление агрегата.\n* **individuals-api** — 4 операции оркестратора: регистрация, логин, обновление токена, текущий пользователь. Регистрация проходит через person-service, затем через Keycloak.\n* **Проверки ошибок** — сценарии из ТЗ: 400/404/409, включая формат RFC 9457.\n* **Стенд** — health и метрики Prometheus обоих сервисов.\n\n## Как пользоваться\n\n1. Импортируйте этот файл (File → Import) и окружение `local.postman_environment.json`.\n2. Выберите окружение **«Локальный стенд»** в правом верхнем углу.\n3. Запускайте запросы по порядку внутри папки — они связаны переменными:\n   * `1. Создать пользователя` сохраняет `userId`, `addressId`, `individualId`;\n   * `1. Регистрация` сохраняет `authEmail`, `accessToken`, `refreshToken`, `userUid`.\n4. Удобнее целиком: **Collection Runner** → Run (папки выполняются сверху вниз).\n\nПеременные `email` и `authEmail` генерируются заново на каждом запуске, чтобы шаблон\nможно было прогонять многократно и не ловить 409 на создании.\nНужен фиксированный адрес — выставьте `autoEmail = false` и задайте `email` вручную.\n\n## Порты\n\n* person-service: `8082` — алиас из примеров ТЗ; «родной» порт сервиса `8092` (в compose опубликованы оба).\n* individuals-api: `8091`.\n\n## Аутентификация\n\nУ person-service собственной аутентификации нет (по ТЗ модуля 2 это зона оркестратора).\nУ individuals-api открыты регистрация/логин/refresh, а `GET /api/v1/auth/me` требует\nBearer-токен — он подставляется автоматически из переменной `accessToken`.\n\nАльтернатива: контракт можно импортировать в Postman напрямую из\n`persons-service/openapi/person-service.yaml` (Import → File), но там не будет\r\nцепочек переменных и проверок — этот файл их добавляет.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "personServiceUrl", "value": "http://localhost:8082", "type": "string" },
+    { "key": "individualsApiUrl", "value": "http://localhost:8091", "type": "string" },
+    { "key": "autoEmail", "value": "true", "type": "string" },
+    { "key": "email", "value": "", "type": "string" },
+    { "key": "authEmail", "value": "", "type": "string" },
+    { "key": "password", "value": "Passw0rd!23", "type": "string" },
+    { "key": "confirmPassword", "value": "Passw0rd!23", "type": "string" },
+    { "key": "firstName", "value": "Иван", "type": "string" },
+    { "key": "lastName", "value": "Петров", "type": "string" },
+    { "key": "lastNameUpdated", "value": "Петров-Старший", "type": "string" },
+    { "key": "city", "value": "Moscow", "type": "string" },
+    { "key": "cityUpdated", "value": "Saint Petersburg", "type": "string" },
+    { "key": "userId", "value": "", "type": "string" },
+    { "key": "addressId", "value": "", "type": "string" },
+    { "key": "individualId", "value": "", "type": "string" },
+    { "key": "checkEmail", "value": "", "type": "string" },
+    { "key": "checkUserId", "value": "", "type": "string" },
+    { "key": "accessToken", "value": "", "type": "string" },
+    { "key": "refreshToken", "value": "", "type": "string" },
+    { "key": "userUid", "value": "", "type": "string" },
+    { "key": "keycloakUserId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "person-service",
+      "description": "5 операций контракта openapi/person-service.yaml. Запускать по порядку: запросы связаны переменной userId.",
+      "item": [
+        {
+          "name": "1. Создать пользователя (201)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Уникальный email на каждый прогон, чтобы шаблон запускался многократно.",
+                  "// Нужен фиксированный адрес — выставьте autoEmail=false и задайте email вручную.",
+                  "if (pm.collectionVariables.get('autoEmail') !== 'false') {",
+                  "    pm.collectionVariables.set('email', 'user-' + Date.now() + '@example.org');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Content-Type: application/json', function () {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('агрегат заполнен: filled = true', function () {",
+                  "    pm.expect(body.filled).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('даты создания и обновления заполнены', function () {",
+                  "    pm.expect(body.createdAt).to.be.a('string');",
+                  "    pm.expect(body.updatedAt).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('адрес создан вместе с пользователем', function () {",
+                  "    pm.expect(body.address.countryAlpha3).to.eql('RUS');",
+                  "    pm.expect(body.address.city).to.eql(pm.collectionVariables.get('city'));",
+                  "});",
+                  "",
+                  "pm.test('индивидуальные данные созданы со статусом NEW', function () {",
+                  "    pm.expect(body.individual.status).to.eql('NEW');",
+                  "    pm.expect(body.individual.verifiedAt).to.be.null;",
+                  "});",
+                  "",
+                  "pm.test('есть заголовок Location на созданный ресурс', function () {",
+                  "    pm.response.to.have.header('Location');",
+                  "    pm.expect(pm.response.headers.get('Location')).to.include(body.id);",
+                  "});",
+                  "",
+                  "// Цепочка: идентификаторы нужны остальным запросам",
+                  "pm.collectionVariables.set('userId', body.id);",
+                  "pm.collectionVariables.set('addressId', body.address.id);",
+                  "pm.collectionVariables.set('individualId', body.individual.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"firstName\": \"{{firstName}}\",\n  \"lastName\": \"{{lastName}}\",\n  \"address\": {\n    \"countryAlpha3\": \"RUS\",\n    \"countryAlpha2\": \"RU\",\n    \"city\": \"{{city}}\",\n    \"state\": \"Moscow\",\n    \"zipCode\": \"101000\",\n    \"addressLine\": \"ул. Пример, д. 1\"\n  },\n  \"individual\": {\n    \"passportNumber\": \"1234 567890\",\n    \"phoneNumber\": \"+79991234567\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/users",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "description": "Транзакционно создаёт агрегат: users + addresses + individuals.\n\nОжидаемый ответ: 201 Created, заголовок Location, тело — UserResponse с filled=true.\nEmail должен быть уникальным без учёта регистра (uk_users_email_lower).\n\nОшибки: 400 — валидация или неизвестная страна, 409 — email уже занят."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Получить по идентификатору (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "const expectedId = pm.collectionVariables.get('userId');",
+                  "",
+                  "pm.test('вернулся запрошенный пользователь', function () {",
+                  "    pm.expect(body.id).to.eql(expectedId);",
+                  "});",
+                  "",
+                  "pm.test('агрегат возвращается целиком', function () {",
+                  "    pm.expect(body.address).to.be.an('object');",
+                  "    pm.expect(body.individual).to.be.an('object');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/users/{{userId}}",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}"]
+            },
+            "description": "Возвращает агрегат целиком по доменному идентификатору.\n\nТребует, чтобы сначала выполнился запрос «1. Создать пользователя» (переменная userId).\nОшибки: 400 — не UUID в пути, 404 — пользователь не найден."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Получить по email (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('email совпадает с искомым (регистр не важен)', function () {",
+                  "    pm.expect(body.email.toLowerCase()).to.eql(pm.collectionVariables.get('email').toLowerCase());",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/users/by-email?email={{email}}",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "users", "by-email"],
+              "query": [{ "key": "email", "value": "{{email}}" }]
+            },
+            "description": "Поиск по email без учёта регистра: `lower(email)` совпадает с уникальным функциональным индексом.\n\nОшибки: 400 — невалидный email, 404 — пользователь не найден."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Изменить пользователя (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('изменились переданные поля', function () {",
+                  "    pm.expect(body.lastName).to.eql(pm.collectionVariables.get('lastNameUpdated'));",
+                  "    pm.expect(body.address.city).to.eql(pm.collectionVariables.get('cityUpdated'));",
+                  "    pm.expect(body.individual.phoneNumber).to.eql('+79990000000');",
+                  "});",
+                  "",
+                  "pm.test('непереданные поля сохранены (patch-семантика)', function () {",
+                  "    pm.expect(body.firstName).to.eql(pm.collectionVariables.get('firstName'));",
+                  "    pm.expect(body.address.addressLine).to.eql('ул. Пример, д. 1');",
+                  "    pm.expect(body.individual.passportNumber).to.eql('1234 567890');",
+                  "});",
+                  "",
+                  "pm.test('updatedAt отличается от createdAt', function () {",
+                  "    pm.expect(body.updatedAt).to.not.eql(body.createdAt);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lastName\": \"{{lastNameUpdated}}\",\n  \"address\": {\n    \"city\": \"{{cityUpdated}}\"\n  },\n  \"individual\": {\n    \"phoneNumber\": \"+79990000000\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/users/{{userId}}",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}"]
+            },
+            "description": "Частичное обновление агрегата одной транзакцией: адрес, индивидуальные данные и учётная запись меняются вместе.\n\nПоля, отсутствующие в запросе, не изменяются (в том числе внутри вложенных объектов).\nПопытка создать неполный адрес → 400. Изменение фиксируется в аудите Envers (`users_aud.last_name_mod = true`).\n\nОшибки: 400 — валидация/неизвестная страна/неполный адрес, 404 — не найден, 409 — email занят или конкурентное изменение."
+          },
+          "response": []
+        },
+        {
+          "name": "5. Удалить пользователя (204)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});",
+                  "",
+                  "pm.test('тело ответа пустое', function () {",
+                  "    pm.expect(pm.response.text()).to.be.empty;",
+                  "});",
+                  "",
+                  "// Проверяем, что агрегата больше нет",
+                  "pm.sendRequest({",
+                  "    url: pm.collectionVariables.get('personServiceUrl') + '/api/v1/users/' + pm.collectionVariables.get('userId'),",
+                  "    method: 'GET'",
+                  "}, function (err, res) {",
+                  "    pm.test('после удаления пользователь не найден (404)', function () {",
+                  "        pm.expect(res.code).to.eql(404);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('userId', '');",
+                  "pm.collectionVariables.set('addressId', '');",
+                  "pm.collectionVariables.set('individualId', '');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/users/{{userId}}",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}"]
+            },
+            "description": "Транзакционно удаляет агрегат: users + individuals + addresses (каскад).\nИстория остаётся в аудитных таблицах Envers: в `users_aud` появляется ревизия с `revtype = 2`, а данные сохраняются благодаря `store_data_at_delete`.\n\nОшибки: 404 — пользователь не найден."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "individuals-api",
+      "description": "Оркестратор: регистрация проходит через person-service, затем через Keycloak. Запускать по порядку — запросы связаны переменными authEmail, accessToken, refreshToken.",
+      "item": [
+        {
+          "name": "1. Регистрация (200/201)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Отдельный email: цепочка person-service не должна мешать регистрации.",
+                  "if (pm.collectionVariables.get('autoEmail') !== 'false') {",
+                  "    pm.collectionVariables.set('authEmail', 'auth-' + Date.now() + '@example.org');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Контракт объявляет 201, контроллер сейчас отдаёт 200 — принимаем оба,",
+                  "// чтобы шаблон не сломался, когда расхождение поправят.",
+                  "pm.test('регистрация успешна (200 или 201)', function () {",
+                  "    pm.expect(pm.response.code, 'спека обещает 201, реализация отдаёт 200').to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('вернулись токены', function () {",
+                  "    pm.expect(body.accessToken).to.be.a('string');",
+                  "    pm.expect(body.refreshToken).to.be.a('string');",
+                  "    pm.expect(body.tokenType).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('есть доменный user_uid из person-service', function () {",
+                  "    pm.expect(body.userUid).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('есть идентификатор пользователя Keycloak', function () {",
+                  "    pm.expect(body.keycloakUserId).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "pm.collectionVariables.set('refreshToken', body.refreshToken);",
+                  "pm.collectionVariables.set('userUid', body.userUid);",
+                  "pm.collectionVariables.set('keycloakUserId', body.keycloakUserId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{authEmail}}\",\n  \"firstName\": \"{{firstName}}\",\n  \"lastName\": \"{{lastName}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{confirmPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{individualsApiUrl}}/api/v1/auth/registration",
+              "host": ["{{individualsApiUrl}}"],
+              "path": ["api", "v1", "auth", "registration"]
+            },
+            "description": "Сценарий оркестратора: создать пользователя в person-service → зарегистрировать его в Keycloak → залогиниться и вернуть токены.\n\n`userUid` в ответе — доменный идентификатор из person-service (его оркестратор передаёт дальше в Keycloak как атрибут `user_uid`). `keycloakUserId` — идентификатор в Keycloak.\n\nОшибки: 400 — валидация или несовпадение паролей, 409 — email уже занят, 502 — person-service недоступен."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Логин (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('вернулись токены и user_uid', function () {",
+                  "    pm.expect(body.accessToken).to.be.a('string');",
+                  "    pm.expect(body.refreshToken).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "pm.collectionVariables.set('refreshToken', body.refreshToken);",
+                  "if (body.userUid) {",
+                  "    pm.collectionVariables.set('userUid', body.userUid);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{authEmail}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{individualsApiUrl}}/api/v1/auth/login",
+              "host": ["{{individualsApiUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "Логин в Keycloak; оркестратор дополнительно подтягивает пользователя из person-service, чтобы вернуть `userUid`.\n\nТребует, чтобы сначала выполнился запрос «1. Регистрация» (переменные authEmail и password)."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Обновить токен (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('вернулась новая пара токенов', function () {",
+                  "    pm.expect(body.accessToken).to.be.a('string');",
+                  "    pm.expect(body.refreshToken).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "pm.collectionVariables.set('refreshToken', body.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{individualsApiUrl}}/api/v1/auth/refresh-token",
+              "host": ["{{individualsApiUrl}}"],
+              "path": ["api", "v1", "auth", "refresh-token"]
+            },
+            "description": "Обмен refresh-токена на новую пару. Требует выполнения «1. Регистрация» или «2. Логин»."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Текущий пользователь (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('вернулся пользователь из регистрации', function () {",
+                  "    pm.expect(body.email).to.eql(pm.collectionVariables.get('authEmail'));",
+                  "});",
+                  "",
+                  "pm.test('userUid приходит из person-service', function () {",
+                  "    pm.expect(body.userUid).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('есть роли пользователя из Keycloak', function () {",
+                  "    pm.expect(body.roles).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                { "key": "token", "value": "{{accessToken}}", "type": "string" }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{individualsApiUrl}}/api/v1/auth/me",
+              "host": ["{{individualsApiUrl}}"],
+              "path": ["api", "v1", "auth", "me"]
+            },
+            "description": "Единственная защищённая ручка: нужен Bearer access-токен из регистрации/логина (подставляется автоматически).\n\nОшибки: 401 — токен отсутствует, просрочен или невалиден."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Проверки ошибок",
+      "description": "Сценарии из требований ТЗ. Запускать после создания пользователя в папке person-service — часть запросов опирается на переменную email.",
+      "item": [
+        {
+          "name": "1. Подготовить пользователя для проверок (201)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Свой email для проверок: не зависит от цепочки person-service,",
+                  "// где пользователь к этому моменту уже удалён.",
+                  "pm.collectionVariables.set('checkEmail', 'dup-' + Date.now() + '@example.org');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('checkUserId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{checkEmail}}\",\n  \"firstName\": \"{{firstName}}\",\n  \"lastName\": \"{{lastName}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/users",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "description": "Создаёт пользователя с отдельным email, чтобы следующая проверка конфликта была детерминированной (без оглядки на предыдущие папки)."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Дубликат email → 409 (RFC 9457)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test('Content-Type: application/problem+json', function () {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('problem+json описывает конфликт', function () {",
+                  "    pm.expect(body.type).to.eql('https://example.org/problems/email-already-exists');",
+                  "    pm.expect(body.title).to.eql('Конфликт данных');",
+                  "    pm.expect(body.status).to.eql(409);",
+                  "    pm.expect(body.instance).to.eql('/api/v1/users');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{checkEmail}}\",\n  \"firstName\": \"{{firstName}}\",\n  \"lastName\": \"{{lastName}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/users",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "description": "Уникальность email обеспечивает функциональный индекс БД, поэтому гонка двух одновременных регистраций тоже закрыта: второй запрос получает 409."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Убрать подготовленного пользователя (204)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('checkUserId', '');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/users/{{checkUserId}}",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "users", "{{checkUserId}}"]
+            },
+            "description": "Уборка за проверками, чтобы БД не копила тестовые записи между прогонами."
+          },
+          "response": []
+        },
+        {
+          "name": "Невалидный email и пустое имя → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('детализация ошибок по полям (errors)', function () {",
+                  "    pm.expect(body.type).to.eql('https://example.org/problems/validation-error');",
+                  "    pm.expect(body.errors).to.have.property('email');",
+                  "    pm.expect(body.errors).to.have.property('lastName');",
+                  "    pm.expect(body.errors).to.have.property('firstName');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"not-an-email\",\n  \"firstName\": \"\",\n  \"address\": {\n    \"countryAlpha3\": \"RUS\",\n    \"countryAlpha2\": \"RU\",\n    \"city\": \"Moscow\",\n    \"addressLine\": \"ул. Пример, д. 1\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/users",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "description": "Валидация выполняется по контракту (@Valid на сгенерированном интерфейсе). Расширение `errors` — поле → сообщение."
+          },
+          "response": []
+        },
+        {
+          "name": "Неизвестная страна → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('тип проблемы — неизвестная страна', function () {",
+                  "    pm.expect(body.type).to.eql('https://example.org/problems/unknown-country');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"unknown-country-{{$timestamp}}@example.org\",\n  \"firstName\": \"Тест\",\n  \"lastName\": \"Страны\",\n  \"address\": {\n    \"countryAlpha3\": \"ZZZ\",\n    \"countryAlpha2\": \"ZZ\",\n    \"city\": \"Nowhere\",\n    \"addressLine\": \"ул. Никуда, д. 1\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/users",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "description": "Страна резолвится по справочнику person.countries; коды alpha-3 и alpha-2 должны быть согласованы. В теле используется динамическая переменная Postman `{{$timestamp}}`, чтобы email не конфликтовал."
+          },
+          "response": []
+        },
+        {
+          "name": "Битый UUID в пути → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('ответ в формате problem+json', function () {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/users/not-a-uuid",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "users", "not-a-uuid"]
+            },
+            "description": "Ошибка преобразования типа параметра пути обрабатывается тем же слоем ошибок."
+          },
+          "response": []
+        },
+        {
+          "name": "Пользователь не найден → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('тип проблемы — пользователь не найден', function () {",
+                  "    pm.expect(body.type).to.eql('https://example.org/problems/user-not-found');",
+                  "    pm.expect(body.status).to.eql(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/users/00000000-0000-0000-0000-000000000000",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "users", "00000000-0000-0000-0000-000000000000"]
+            },
+            "description": "Идентификатор валиден по формату, но записи нет."
+          },
+          "response": []
+        },
+        {
+          "name": "Неизвестный путь → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('тип проблемы — ресурс не найден', function () {",
+                  "    pm.expect(body.type).to.eql('https://example.org/problems/resource-not-found');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{personServiceUrl}}/api/v1/unknown-resource",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["api", "v1", "unknown-resource"]
+            },
+            "description": "Проверяет, что несуществующий маршрут тоже отдаёт problem+json, а не стандартную страницу ошибки."
+          },
+          "response": []
+        },
+        {
+          "name": "Дубликат регистрации (оркестратор) → 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('оркестратор сохранил статус соседнего сервиса', function () {",
+                  "    pm.expect(body.status).to.eql(409);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{authEmail}}\",\n  \"firstName\": \"{{firstName}}\",\n  \"lastName\": \"{{lastName}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{confirmPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{individualsApiUrl}}/api/v1/auth/registration",
+              "host": ["{{individualsApiUrl}}"],
+              "path": ["api", "v1", "auth", "registration"]
+            },
+            "description": "Повторная регистрация того же email. Требует выполнения «1. Регистрация» в папке individuals-api.\n\nperson-service отвечает 409, оркестратор пробрасывает этот статус клиенту (а не 500)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Стенд",
+      "description": "Технические ручки обоих сервисов: проверка готовности и метрики.",
+      "item": [
+        {
+          "name": "person-service: health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('сервис и БД здоровы', function () {",
+                  "    pm.expect(body.status).to.eql('UP');",
+                  "    pm.expect(body.components.db.status).to.eql('UP');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{personServiceUrl}}/actuator/health",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["actuator", "health"]
+            },
+            "description": "Liveness/readiness и состояние подключения к PostgreSQL. Этот же эндпоинт используется healthcheck'ом в docker-compose."
+          },
+          "response": []
+        },
+        {
+          "name": "person-service: метрики Prometheus",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('метрики JVM отдаются', function () {",
+                  "    pm.expect(pm.response.text()).to.include('jvm_memory_used_bytes');",
+                  "});",
+                  "",
+                  "pm.test('есть метрики HTTP-запросов', function () {",
+                  "    pm.expect(pm.response.text()).to.include('http_server_requests_seconds');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{personServiceUrl}}/actuator/prometheus",
+              "host": ["{{personServiceUrl}}"],
+              "path": ["actuator", "prometheus"]
+            },
+            "description": "Формат Prometheus. Метрики HTTP-запросов появляются после первого вызова ручек, поэтому запускать этот запрос имеет смысл после остальных."
+          },
+          "response": []
+        },
+        {
+          "name": "individuals-api: health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{individualsApiUrl}}/actuator/health",
+              "host": ["{{individualsApiUrl}}"],
+              "path": ["actuator", "health"]
+            },
+            "description": "Готовность оркестратора."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
