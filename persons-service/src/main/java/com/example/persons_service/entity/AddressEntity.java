@@ -1,8 +1,10 @@
 package com.example.persons_service.entity;
 
-import org.springframework.data.annotation.Id;
-import org.springframework.data.annotation.Version;
-import org.springframework.data.relational.core.mapping.Table;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -11,29 +13,40 @@ import java.util.UUID;
  * Адрес пользователя. Ссылка на справочник стран хранится идентификатором
  * ({@code countryId}), аудируется вместе с агрегатом.
  */
-@Table(value = "addresses", schema = "person")
+@Entity
+@Table(name = "addresses", schema = "person")
 public class AddressEntity {
 
     @Id
+    @Column(name = "id", nullable = false)
     private UUID id;
 
+    @Column(name = "created")
     private OffsetDateTime created;
 
+    @Column(name = "updated")
     private OffsetDateTime updated;
 
     @Version
+    @Column(name = "version")
     private Long version;
 
+    @Column(name = "country_id")
     private Integer countryId;
 
+    @Column(name = "address")
     private String address;
 
+    @Column(name = "zip_code")
     private String zipCode;
 
+    @Column(name = "archived")
     private OffsetDateTime archived;
 
+    @Column(name = "city")
     private String city;
 
+    @Column(name = "state")
     private String state;
 
     public static AddressEntity newInstance() {

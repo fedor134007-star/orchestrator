@@ -4,17 +4,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.ObjectMapper;
 
-import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -26,19 +25,27 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Интеграционные проверки на реальном PostgreSQL (Testcontainers) для реактивного стека:
- * миграции Flyway, R2DBC-репозитории, транзакционные границы агрегата, собственный аудит,
- * RFC 9457 и actuator.
+ * Интеграционные проверки на реальном PostgreSQL (Testcontainers) для Spring MVC + JPA:
+ * миграции Flyway, JPA-репозитории, транзакционные границы агрегата, собственный аудит,
+ * RFC 9457 и actuator. HTTP-слой прогоняется через MockMvc (полный MVC-стек).
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+@SpringBootTest(properties = {
         "management.tracing.enabled=false",
         "logging.level.root=WARN",
         "logging.level.com.example.persons_service=INFO"
 })
-@AutoConfigureWebTestClient
-@DisplayName("person-service (WebFlux + R2DBC): интеграционные сценарии")
+@AutoConfigureMockMvc
+@DisplayName("person-service (Spring MVC + JPA): интеграционные сценарии")
 class PersonServiceIntegrationTest {
 
     /**
@@ -53,196 +60,144 @@ class PersonServiceIntegrationTest {
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
-        // Рабочее подключение приложения — реактивное
-        registry.add("spring.r2dbc.url",
-                () -> "r2dbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432)
-                        + "/" + POSTGRES.getDatabaseName());
-        registry.add("spring.r2dbc.username", POSTGRES::getUsername);
-        registry.add("spring.r2dbc.password", POSTGRES::getPassword);
-
-        // JDBC-подключение нужно Flyway
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
     }
 
     @Autowired
-    private WebTestClient webTestClient;
+    private MockMvc mockMvc;
 
     @Autowired
     private ObjectMapper objectMapper;
 
-    private JdbcTemplate jdbcTemplate;
-
     @Autowired
-    void setUpJdbcTemplate(DataSource dataSource) {
-        // В Boot 4 JdbcTemplate не создаётся автоматически: собираем его из DataSource,
-        // который нужен Flyway (JDBC-подключение).
-        this.jdbcTemplate = new JdbcTemplate(dataSource);
-    }
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     @DisplayName("создание агрегата, чтение по id и по email без учёта регистра")
-    void createsAndReadsAggregate() {
+    void createsAndReadsAggregate() throws Exception {
         String email = uniqueEmail();
 
-        byte[] rawBody = webTestClient.post()
-                .uri("/api/v1/users")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(createBody(email))
-                .exchange()
-                .expectStatus().isCreated()
-                .expectHeader().exists("Location")
-                .expectBody()
-                .jsonPath("$.email").isEqualTo(email)
-                .jsonPath("$.firstName").isEqualTo("Иван")
-                .jsonPath("$.filled").isEqualTo(true)
-                .jsonPath("$.address.countryAlpha3").isEqualTo("RUS")
-                .jsonPath("$.individual.status").isEqualTo("NEW")
-                .returnResult()
-                .getResponseBody();
+        String created = mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createBody(email)))
+                .andExpect(status().isCreated())
+                .andExpect(header().exists("Location"))
+                .andExpect(jsonPath("$.email").value(email))
+                .andExpect(jsonPath("$.firstName").value("Иван"))
+                .andExpect(jsonPath("$.filled").value(true))
+                .andExpect(jsonPath("$.address.countryAlpha3").value("RUS"))
+                .andExpect(jsonPath("$.individual.status").value("NEW"))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
 
-        String created = new String(rawBody, StandardCharsets.UTF_8);
+        var root = objectMapper.readTree(created);
+        assertThat(root.at("/individual/verifiedAt").isNull()).isTrue();
+        assertThat(root.at("/individual/archivedAt").isNull()).isTrue();
 
-        String id = objectMapper.readTree(created).get("id").asText();
+        String id = root.get("id").asText();
 
-        // У нового пользователя даты верификации и архивации естественно отсутствуют
-        assertThat(objectMapper.readTree(created).get("individual").get("verifiedAt").isNull()).isTrue();
-        assertThat(objectMapper.readTree(created).get("individual").get("archivedAt").isNull()).isTrue();
+        mockMvc.perform(get("/api/v1/users/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.address.addressLine").value("ул. Пример, д. 1"));
 
-        webTestClient.get()
-                .uri("/api/v1/users/{id}", id)
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody()
-                .jsonPath("$.id").isEqualTo(id)
-                .jsonPath("$.address.addressLine").isEqualTo("ул. Пример, д. 1");
-
-        webTestClient.get()
-                .uri(uriBuilder -> uriBuilder.path("/api/v1/users/by-email")
-                        .queryParam("email", email.toUpperCase())
-                        .build())
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody()
-                .jsonPath("$.id").isEqualTo(id);
+        mockMvc.perform(get("/api/v1/users/by-email").param("email", email.toUpperCase()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id));
     }
 
     @Test
     @DisplayName("повторный email → 409 в формате RFC 9457")
-    void rejectsDuplicateEmail() {
+    void rejectsDuplicateEmail() throws Exception {
         String email = uniqueEmail();
         createUser(email);
 
-        webTestClient.post()
-                .uri("/api/v1/users")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(createBody(email))
-                .exchange()
-                .expectStatus().isEqualTo(HttpStatus.CONFLICT)
-                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectBody()
-                .jsonPath("$.type").isEqualTo("https://example.org/problems/email-already-exists")
-                .jsonPath("$.title").isEqualTo("Конфликт данных")
-                .jsonPath("$.status").isEqualTo(409)
-                .jsonPath("$.detail").isEqualTo("Пользователь с таким email уже существует")
-                .jsonPath("$.instance").isEqualTo("/api/v1/users");
+        mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createBody(email)))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("https://example.org/problems/email-already-exists"))
+                .andExpect(jsonPath("$.title").value("Конфликт данных"))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.detail").value("Пользователь с таким email уже существует"))
+                .andExpect(jsonPath("$.instance").value("/api/v1/users"));
     }
 
     @Test
     @DisplayName("валидация запроса → 400 с детализацией по полям")
-    void reportsValidationErrors() {
-        webTestClient.post()
-                .uri("/api/v1/users")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("""
-                        {"email":"not-an-email","firstName":"",
-                         "address":{"countryAlpha3":"RUS","countryAlpha2":"RU","city":"Moscow","addressLine":"x"}}
-                        """)
-                .exchange()
-                .expectStatus().isBadRequest()
-                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectBody()
-                .jsonPath("$.type").isEqualTo("https://example.org/problems/validation-error")
-                .jsonPath("$.errors.email").exists()
-                .jsonPath("$.errors.lastName").exists();
+    void reportsValidationErrors() throws Exception {
+        mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"not-an-email","firstName":"",
+                                 "address":{"countryAlpha3":"RUS","countryAlpha2":"RU","city":"Moscow","addressLine":"x"}}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("https://example.org/problems/validation-error"))
+                .andExpect(jsonPath("$.errors.email").exists())
+                .andExpect(jsonPath("$.errors.lastName").exists());
     }
 
     @Test
     @DisplayName("невалидный email в query-параметре → 400")
-    void reportsInvalidQueryParameter() {
-        webTestClient.get()
-                .uri(uriBuilder -> uriBuilder.path("/api/v1/users/by-email")
-                        .queryParam("email", "not-an-email")
-                        .build())
-                .exchange()
-                .expectStatus().isBadRequest()
-                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON);
+    void reportsInvalidQueryParameter() throws Exception {
+        mockMvc.perform(get("/api/v1/users/by-email").param("email", "not-an-email"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
     }
 
     @Test
     @DisplayName("неизвестная страна → 400")
-    void rejectsUnknownCountry() {
-        webTestClient.post()
-                .uri("/api/v1/users")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("""
-                        {"email":"%s","firstName":"A","lastName":"B",
-                         "address":{"countryAlpha3":"ZZZ","countryAlpha2":"ZZ","city":"X","addressLine":"y"}}
-                        """.formatted(uniqueEmail()))
-                .exchange()
-                .expectStatus().isBadRequest()
-                .expectBody()
-                .jsonPath("$.type").isEqualTo("https://example.org/problems/unknown-country");
+    void rejectsUnknownCountry() throws Exception {
+        mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"%s","firstName":"A","lastName":"B",
+                                 "address":{"countryAlpha3":"ZZZ","countryAlpha2":"ZZ","city":"X","addressLine":"y"}}
+                                """.formatted(uniqueEmail())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("https://example.org/problems/unknown-country"));
     }
 
     @Test
     @DisplayName("битый UUID → 400, отсутствующий пользователь и путь → 404")
-    void reportsNotFoundAndMalformedId() {
-        webTestClient.get()
-                .uri("/api/v1/users/not-a-uuid")
-                .exchange()
-                .expectStatus().isBadRequest()
-                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON);
+    void reportsNotFoundAndMalformedId() throws Exception {
+        mockMvc.perform(get("/api/v1/users/not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
 
-        webTestClient.get()
-                .uri("/api/v1/users/{id}", UUID.randomUUID())
-                .exchange()
-                .expectStatus().isNotFound()
-                .expectBody()
-                .jsonPath("$.type").isEqualTo("https://example.org/problems/user-not-found");
+        mockMvc.perform(get("/api/v1/users/{id}", UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("https://example.org/problems/user-not-found"));
 
-        // Несуществующий маршрут обрабатывается ErrorWebExceptionHandler и тоже отдаёт problem+json
-        webTestClient.get()
-                .uri("/api/v1/unknown-resource")
-                .exchange()
-                .expectStatus().isNotFound()
-                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectBody()
-                .jsonPath("$.type").isEqualTo("https://example.org/problems/resource-not-found");
+        // Несуществующий маршрут обрабатывается advice и тоже отдаёт problem+json
+        mockMvc.perform(get("/api/v1/unknown-resource"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("https://example.org/problems/resource-not-found"));
     }
 
     @Test
     @DisplayName("PATCH обновляет вложенные сущности и сохраняет непереданные поля")
-    void patchesNestedEntities() {
+    void patchesNestedEntities() throws Exception {
         String id = createUser(uniqueEmail());
 
-        webTestClient.patch()
-                .uri("/api/v1/users/{id}", id)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("""
-                        {"lastName":"Петров-Старший",
-                         "address":{"city":"Saint Petersburg"},
-                         "individual":{"phoneNumber":"+79990000000"}}
-                        """)
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody()
-                .jsonPath("$.lastName").isEqualTo("Петров-Старший")
-                .jsonPath("$.address.city").isEqualTo("Saint Petersburg")
-                .jsonPath("$.address.addressLine").isEqualTo("ул. Пример, д. 1")
-                .jsonPath("$.individual.phoneNumber").isEqualTo("+79990000000")
-                .jsonPath("$.individual.passportNumber").isEqualTo("1234 567890");
+        mockMvc.perform(patch("/api/v1/users/{id}", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"lastName":"Петров-Старший",
+                                 "address":{"city":"Saint Petersburg"},
+                                 "individual":{"phoneNumber":"+79990000000"}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lastName").value("Петров-Старший"))
+                .andExpect(jsonPath("$.address.city").value("Saint Petersburg"))
+                .andExpect(jsonPath("$.address.addressLine").value("ул. Пример, д. 1"))
+                .andExpect(jsonPath("$.individual.phoneNumber").value("+79990000000"))
+                .andExpect(jsonPath("$.individual.passportNumber").value("1234 567890"));
 
         Map<String, Object> row = jdbcTemplate.queryForMap(
                 "select last_name, first_name from person.users where id = ?", UUID.fromString(id));
@@ -252,26 +207,21 @@ class PersonServiceIntegrationTest {
 
     @Test
     @DisplayName("неудачный PATCH не оставляет частичных изменений")
-    void failedPatchLeavesNoPartialChanges() {
+    void failedPatchLeavesNoPartialChanges() throws Exception {
         String id = createUser(uniqueEmail());
 
-        webTestClient.patch()
-                .uri("/api/v1/users/{id}", id)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("""
-                        {"lastName":"Не должно сохраниться",
-                         "address":{"countryAlpha3":"ZZZ","countryAlpha2":"ZZ"}}
-                        """)
-                .exchange()
-                .expectStatus().isBadRequest();
+        mockMvc.perform(patch("/api/v1/users/{id}", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"lastName":"Не должно сохраниться",
+                                 "address":{"countryAlpha3":"ZZZ","countryAlpha2":"ZZ"}}
+                                """))
+                .andExpect(status().isBadRequest());
 
-        webTestClient.get()
-                .uri("/api/v1/users/{id}", id)
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody()
-                .jsonPath("$.lastName").isEqualTo("Петров")
-                .jsonPath("$.address.city").isEqualTo("Moscow");
+        mockMvc.perform(get("/api/v1/users/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lastName").value("Петров"))
+                .andExpect(jsonPath("$.address.city").value("Moscow"));
 
         assertThat(jdbcTemplate.queryForObject(
                 "select last_name from person.users where id = ?", String.class, UUID.fromString(id)))
@@ -315,28 +265,16 @@ class PersonServiceIntegrationTest {
 
     @Test
     @DisplayName("аудит: ревизии с флагами изменённых полей, снимок при удалении")
-    void writesAuditRevisions() {
+    void writesAuditRevisions() throws Exception {
         String email = uniqueEmail();
-        String created = webTestClient.post()
-                .uri("/api/v1/users")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(createBody(email))
-                .exchange()
-                .expectStatus().isCreated()
-                .expectBody(String.class)
-                .returnResult()
-                .getResponseBody();
+        var createdNode = objectMapper.readTree(createUserResponse(email));
+        UUID userId = UUID.fromString(createdNode.get("id").asText());
+        UUID addressId = UUID.fromString(createdNode.at("/address/id").asText());
 
-        var node = objectMapper.readTree(created);
-        UUID userId = UUID.fromString(node.get("id").asText());
-        UUID addressId = UUID.fromString(node.get("address").get("id").asText());
-
-        webTestClient.patch()
-                .uri("/api/v1/users/{id}", userId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"lastName\":\"Петров-Старший\",\"address\":{\"city\":\"Kazan\"}}")
-                .exchange()
-                .expectStatus().isOk();
+        mockMvc.perform(patch("/api/v1/users/{id}", userId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lastName\":\"Петров-Старший\",\"address\":{\"city\":\"Kazan\"}}"))
+                .andExpect(status().isOk());
 
         List<Map<String, Object>> revisions = jdbcTemplate.queryForList(
                 "select revtype, last_name, last_name_mod, email_mod, filled_mod, address_mod, individual_mod "
@@ -349,18 +287,14 @@ class PersonServiceIntegrationTest {
         assertThat(revisions.get(1).get("last_name_mod")).isEqualTo(true);
         assertThat(revisions.get(1).get("email_mod")).isEqualTo(false);
         assertThat(revisions.get(1).get("filled_mod")).isEqualTo(false);
-        // address_mod отражает изменение связи users.address_id, а не полей адреса
         assertThat(revisions.get(1).get("address_mod")).isEqualTo(false);
 
-        // Изменение полей адреса попадает в собственную аудитную таблицу адреса
         List<Map<String, Object>> addressRevisions = jdbcTemplate.queryForList(
                 "select revtype, city from person.addresses_aud where id = ? order by rev", addressId);
         assertThat(addressRevisions).hasSize(2);
         assertThat(intValue(addressRevisions.get(1).get("revtype"))).isEqualTo(1);
         assertThat(addressRevisions.get(1).get("city")).isEqualTo("Kazan");
 
-        // У пользователя ровно две ревизии, и обе зарегистрированы в revinfo.
-        // Проверка не зависит от того, сколько ревизий оставили другие тесты.
         Integer revisionsOfUser = jdbcTemplate.queryForObject("""
                 select count(*) from person.revinfo r
                 where exists (select 1 from person.users_aud a where a.rev = r.rev and a.id = ?)
@@ -370,32 +304,18 @@ class PersonServiceIntegrationTest {
 
     @Test
     @DisplayName("удаление агрегата: 204, каскад, ревизия удаления со снимком данных")
-    void deletesWholeAggregate() {
+    void deletesWholeAggregate() throws Exception {
         String email = uniqueEmail();
-        String created = webTestClient.post()
-                .uri("/api/v1/users")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(createBody(email))
-                .exchange()
-                .expectStatus().isCreated()
-                .expectBody(String.class)
-                .returnResult()
-                .getResponseBody();
-
-        var node = objectMapper.readTree(created);
+        var node = objectMapper.readTree(createUserResponse(email));
         UUID userId = UUID.fromString(node.get("id").asText());
-        UUID addressId = UUID.fromString(node.get("address").get("id").asText());
-        UUID individualId = UUID.fromString(node.get("individual").get("id").asText());
+        UUID addressId = UUID.fromString(node.at("/address/id").asText());
+        UUID individualId = UUID.fromString(node.at("/individual/id").asText());
 
-        webTestClient.delete()
-                .uri("/api/v1/users/{id}", userId)
-                .exchange()
-                .expectStatus().isNoContent();
+        mockMvc.perform(delete("/api/v1/users/{id}", userId))
+                .andExpect(status().isNoContent());
 
-        webTestClient.get()
-                .uri("/api/v1/users/{id}", userId)
-                .exchange()
-                .expectStatus().isNotFound();
+        mockMvc.perform(get("/api/v1/users/{id}", userId))
+                .andExpect(status().isNotFound());
 
         assertThat(count("select count(*) from person.users where id = ?", userId)).isZero();
         assertThat(count("select count(*) from person.addresses where id = ?", addressId)).isZero();
@@ -403,7 +323,6 @@ class PersonServiceIntegrationTest {
 
         Map<String, Object> deletion = jdbcTemplate.queryForMap(
                 "select email, first_name, last_name from person.users_aud where id = ? and revtype = 2", userId);
-        // Снимок состояния на момент удаления (аналог store_data_at_delete в Envers)
         assertThat(deletion.get("email")).isEqualTo(email);
         assertThat(deletion.get("last_name")).isEqualTo("Петров");
 
@@ -416,53 +335,40 @@ class PersonServiceIntegrationTest {
 
     @Test
     @DisplayName("actuator отдаёт health, info и метрики Prometheus")
-    void exposesActuator() {
-        webTestClient.get()
-                .uri("/actuator/health")
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody()
-                .jsonPath("$.status").isEqualTo("UP");
+    void exposesActuator() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
 
-        webTestClient.get()
-                .uri("/actuator/info")
-                .exchange()
-                .expectStatus().isOk();
+        mockMvc.perform(get("/actuator/info"))
+                .andExpect(status().isOk());
 
-        webTestClient.get()
-                .uri("/actuator/prometheus")
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody(String.class)
-                .value(body -> assertThat(body).contains("jvm_memory_used_bytes"));
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("jvm_memory_used_bytes")));
     }
 
     // ------------------------------------------------------------------
     // helpers
     // ------------------------------------------------------------------
 
-    private int createAndGetStatus(String body) {
-        return webTestClient.post()
-                .uri("/api/v1/users")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .exchange()
-                .returnResult(String.class)
-                .getStatus()
-                .value();
+    private int createAndGetStatus(String body) throws Exception {
+        return mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andReturn().getResponse().getStatus();
     }
 
-    private String createUser(String email) {
-        String created = webTestClient.post()
-                .uri("/api/v1/users")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(createBody(email))
-                .exchange()
-                .expectStatus().isCreated()
-                .expectBody(String.class)
-                .returnResult()
-                .getResponseBody();
-        return objectMapper.readTree(created).get("id").asText();
+    private String createUserResponse(String email) throws Exception {
+        return mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createBody(email)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+    }
+
+    private String createUser(String email) throws Exception {
+        return objectMapper.readTree(createUserResponse(email)).get("id").asText();
     }
 
     private String createBody(String email) {

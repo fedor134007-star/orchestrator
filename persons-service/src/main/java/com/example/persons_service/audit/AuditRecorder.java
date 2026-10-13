@@ -6,7 +6,6 @@ import com.example.persons_service.entity.AddressEntity;
 import com.example.persons_service.entity.IndividualEntity;
 import com.example.persons_service.entity.UserEntity;
 import org.springframework.stereotype.Component;
-import reactor.core.publisher.Mono;
 
 /**
  * Ревизии аудита по сценариям агрегата.
@@ -24,61 +23,56 @@ public class AuditRecorder {
         this.auditWriter = auditWriter;
     }
 
-    public Mono<Void> recordCreated(UserAggregate aggregate) {
+    public void recordCreated(UserAggregate aggregate) {
         UserEntity user = aggregate.user();
         AddressEntity address = aggregate.address();
         IndividualEntity individual = aggregate.individual();
 
-        return auditWriter.openRevision()
-                .flatMap(rev -> auditWriter.writeUser(rev, AuditWriter.INSERT, user, user, individual != null)
-                        .then(address == null
-                                ? Mono.empty()
-                                : auditWriter.writeAddress(rev, AuditWriter.INSERT, address))
-                        .then(individual == null
-                                ? Mono.empty()
-                                : auditWriter.writeIndividual(rev, AuditWriter.INSERT, individual, individual)));
+        int rev = auditWriter.openRevision();
+        auditWriter.writeUser(rev, AuditWriter.INSERT, user, user, individual != null);
+        if (address != null) {
+            auditWriter.writeAddress(rev, AuditWriter.INSERT, address);
+        }
+        if (individual != null) {
+            auditWriter.writeIndividual(rev, AuditWriter.INSERT, individual, individual);
+        }
     }
 
-    public Mono<Void> recordUpdated(AggregatePatch patch, UserAggregate saved) {
+    public void recordUpdated(AggregatePatch patch, UserAggregate saved) {
         AggregatePatch.IndividualChange individual = patch.individual();
         boolean individualChanged = individual != null && individual.touched();
 
-        return auditWriter.openRevision().flatMap(rev -> {
-            Mono<Void> userAudit = auditWriter.writeUser(
-                    rev, AuditWriter.UPDATE, patch.before().user(), saved.user(), individualChanged);
+        int rev = auditWriter.openRevision();
+        auditWriter.writeUser(rev, AuditWriter.UPDATE, patch.before().user(), saved.user(), individualChanged);
 
-            Mono<Void> addressAudit = patch.address() != null && patch.address().touched()
-                    ? auditWriter.writeAddress(
-                            rev,
-                            patch.address().created() ? AuditWriter.INSERT : AuditWriter.UPDATE,
-                            saved.address())
-                    : Mono.empty();
-
-            Mono<Void> individualAudit = individualChanged
-                    ? auditWriter.writeIndividual(
-                            rev,
-                            individual.created() ? AuditWriter.INSERT : AuditWriter.UPDATE,
-                            individual.created() ? saved.individual() : patch.before().individual(),
-                            saved.individual())
-                    : Mono.empty();
-
-            return userAudit.then(addressAudit).then(individualAudit);
-        });
+        if (patch.address() != null && patch.address().touched()) {
+            auditWriter.writeAddress(
+                    rev,
+                    patch.address().created() ? AuditWriter.INSERT : AuditWriter.UPDATE,
+                    saved.address());
+        }
+        if (individualChanged) {
+            auditWriter.writeIndividual(
+                    rev,
+                    individual.created() ? AuditWriter.INSERT : AuditWriter.UPDATE,
+                    individual.created() ? saved.individual() : patch.before().individual(),
+                    saved.individual());
+        }
     }
 
-    public Mono<Void> recordDeleted(UserAggregate aggregate) {
+    public void recordDeleted(UserAggregate aggregate) {
         UserEntity user = aggregate.user();
         AddressEntity address = aggregate.address();
         IndividualEntity individual = aggregate.individual();
 
         // Снимок состояния на момент удаления (аналог store_data_at_delete в Envers)
-        return auditWriter.openRevision()
-                .flatMap(rev -> auditWriter.writeUser(rev, AuditWriter.DELETE, user, user, individual != null)
-                        .then(address == null
-                                ? Mono.empty()
-                                : auditWriter.writeAddress(rev, AuditWriter.DELETE, address))
-                        .then(individual == null
-                                ? Mono.empty()
-                                : auditWriter.writeIndividual(rev, AuditWriter.DELETE, individual, individual)));
+        int rev = auditWriter.openRevision();
+        auditWriter.writeUser(rev, AuditWriter.DELETE, user, user, individual != null);
+        if (address != null) {
+            auditWriter.writeAddress(rev, AuditWriter.DELETE, address);
+        }
+        if (individual != null) {
+            auditWriter.writeIndividual(rev, AuditWriter.DELETE, individual, individual);
+        }
     }
 }

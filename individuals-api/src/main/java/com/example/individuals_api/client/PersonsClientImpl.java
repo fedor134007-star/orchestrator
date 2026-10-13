@@ -13,6 +13,7 @@ import org.springframework.web.client.RestClientResponseException;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
@@ -45,6 +46,31 @@ public class PersonsClientImpl implements PersonsClient {
     public Mono<UserResponse> getPersonByEmail(String email) {
         return blocking(() -> call(() -> usersApi.getUserByEmail(email), "getUserByEmail"))
                 .onErrorResume(this::emptyIfNotFound);
+    }
+
+    @Override
+    public Mono<Void> deletePerson(UUID userId) {
+        return Mono.<Void>fromRunnable(() -> {
+            try {
+                ResponseEntity<Void> response = usersApi.deleteUser(userId);
+                if (!response.getStatusCode().is2xxSuccessful()) {
+                    throw new PersonServiceException(
+                            "person-service вернул " + response.getStatusCode() + " при удалении пользователя",
+                            response.getStatusCode().value(),
+                            null);
+                }
+            } catch (RestClientResponseException ex) {
+                if (ex.getStatusCode().value() != 404) {
+                    log.warn("Компенсирующее удаление пользователя {} не удалось: {}",
+                            userId, ex.getStatusCode());
+                    throw new PersonServiceException(
+                            "person-service вернул " + ex.getStatusCode() + " при удалении пользователя",
+                            ex.getStatusCode().value(),
+                            ex);
+                }
+                // 404 → уже удалён, компенсация идемпотентна.
+            }
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
     private CreateUserRequest toCreateRequest(RegistrationRequest registrationRequest) {

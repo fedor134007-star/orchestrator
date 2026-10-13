@@ -1,0 +1,106 @@
+@startuml person-service-c4-container
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title person-service — контейнерная диаграмма (Spring MVC + JPA)
+
+Person(user, "Пользователь платформы", "Регистрация, вход, профиль")
+
+System_Boundary(platform, "Платёжная платформа") {
+  Container(individualsApi, "individuals-api", "Spring Boot, WebFlux", "Оркестратор сценариев: регистрация/вход, интеграция с Keycloak, компенсирующий откат person-service")
+  Container(personService, "person-service", "Spring Boot, Spring MVC + JPA", "Источник правды по пользовательским данным: агрегат users+addresses+individuals, аудит, RFC 9457")
+  ContainerDb(personDb, "person DB", "PostgreSQL 17, схема person", "Доменные и аудитные таблицы (*_aud, revinfo)")
+  Container(nexus, "Nexus", "Sonatype Nexus 3", "Публикация person-service-client, прокси Maven Central")
+}
+
+System_Ext(keycloak, "Keycloak", "OAuth2 / OIDC, Admin REST API")
+
+System_Boundary(observability, "Наблюдаемость") {
+  Container(alloy, "Alloy", "Grafana Alloy", "Приём OTLP и docker-логов, разбор JSON, пересылка в Tempo/Loki")
+  Container(prometheus, "Prometheus", "Prometheus", "Метрики с /actuator/prometheus")
+  Container(tempo, "Tempo", "Grafana Tempo", "Распределённые трассы")
+  Container(loki, "Loki", "Grafana Loki", "Логи с label level/trace_id")
+  Container(grafana, "Grafana", "Grafana", "Дашборды и трассы")
+}
+
+Rel(user, individualsApi, "Регистрация, вход, профиль", "HTTPS/JSON")
+Rel(individualsApi, personService, "createUser, getUserByEmail, deleteUser (компенсация)", "REST, Spring HTTP Service Clients")
+Rel(individualsApi, keycloak, "Регистрация пользователя, выдача токенов", "OIDC, Admin REST")
+Rel(individualsApi, nexus, "Загрузка person-service-client", "Maven")
+Rel(personService, personDb, "Чтение/запись агрегата и аудита", "JDBC (HikariCP)")
+Rel(personService, personDb, "Миграции при старте", "Flyway (JDBC)")
+Rel(personService, nexus, "Публикация person-service-client", "Gradle publish")
+Rel(personService, alloy, "Трейсы и логи", "OTLP/HTTP, stdout")
+Rel(prometheus, personService, "Сбор метрик", "HTTP scrape")
+Rel(alloy, tempo, "Трейсы", "OTLP")
+Rel(alloy, loki, "Логи", "Loki push")
+Rel(prometheus, grafana, "Метрики", "HTTP")
+Rel(tempo, grafana, "Трассы", "HTTP")
+Rel(loki, grafana, "Логи", "HTTP")
+@enduml
+
+
+@startuml person-service-c4-component
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title person-service — компоненты
+
+Container_Boundary(http, "HTTP-слой (сгенерирован из openapi/person-service.yaml)") {
+  Component(controller, "UsersApiController", "Spring @Controller", "Маршрутизация из контракта, @Valid на теле")
+  Component(delegate, "UsersApiDelegateImpl", "Spring @Component", "HTTP-слой без бизнес-логики: вызывает сервис, собирает Location")
+  Component(dto, "DTO контракта", "Java-классы", "CreateUserRequest, UserResponse, ProblemResponse")
+}
+
+Container_Boundary(app, "Прикладной слой") {
+  Component(service, "PersonServiceImpl", "Spring @Service", "5 сценариев, транзакционная граница (@Transactional)")
+  Component(validator, "RequestValidator", "jakarta.validation", "Валидация тела, trim email")
+  Component(assembler, "UserAggregateAssembler", "Spring @Component", "Политика агрегата: patch-семантика, filled, вычисление изменений")
+  Component(country, "CountryResolver", "Spring @Component", "Справочник стран, согласованность alpha-2/alpha-3")
+  Component(mapper, "PersonDtoMapper", "Spring @Component", "entity → DTO, применение полей запроса")
+  Component(store, "UserAggregateStore", "Spring Data JPA", "Чтение/запись агрегата, порядок операций из-за FK")
+  Component(audit, "AuditRecorder + AuditWriter", "JdbcTemplate", "Ревизии *_aud с флагами *_mod в той же транзакции")
+  Component(advice, "ProblemDetailsAdvice", "Spring @RestControllerAdvice", "RFC 9457: 400/404/409/500")
+  Component(ds, "DataSourceConfiguration", "HikariCP", "Пул из PersonServiceProperties (5/20/30m)")
+  Component(props, "PersonServiceProperties", "@ConfigurationProperties", "Значения из person-service.properties")
+}
+
+ContainerDb(db, "person DB", "PostgreSQL 17", "users, addresses, individuals, countries, *_aud, revinfo")
+
+Rel(controller, delegate, "передаёт вызов")
+Rel(controller, dto, "использует")
+Rel(delegate, service, "вызывает сценарий")
+Rel(service, validator, "валидирует")
+Rel(service, assembler, "собирает/патчит агрегат")
+Rel(service, store, "читает/пишет")
+Rel(service, audit, "пишет ревизию")
+Rel(assembler, country, "резолвит страну")
+Rel(assembler, mapper, "применяет поля")
+Rel(store, mapper, "отдаёт агрегат для отображения")
+Rel(audit, db, "INSERT revinfo, *_aud")
+Rel(store, db, "JDBC/Hibernate")
+Rel(ds, props, "читает значения пула")
+Rel(ds, db, "соединения")
+Rel(advice, dto, "формирует ProblemDetail")
+@enduml
+
+
+@startuml person-service-saga
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Dynamic.puml
+
+title Регистрация: сага с компенсацией
+
+Container(client, "Клиент", "Пользователь", "Инициатор регистрации")
+Container(orchestrator, "individuals-api", "WebFlux", "Сценарий регистрации")
+Container(person, "person-service", "Spring MVC + JPA", "Доменный пользователь")
+Container(kc, "Keycloak", "Identity Server", "Учётная запись в IdP")
+
+Rel(client, orchestrator, "1. POST /register", "JSON")
+Rel(orchestrator, person, "2. POST /api/v1/users (createUser)", "REST")
+Rel(person, orchestrator, "3. 201 Created + id", "JSON")
+Rel(orchestrator, kc, "4. Регистрация пользователя", "Admin REST")
+alt Регистрация в Keycloak не удалась
+  Rel(orchestrator, person, "5. DELETE /api/v1/users/{id} (компенсация)", "REST")
+  Rel(orchestrator, client, "6. 4xx/5xx об ошибке", "JSON")
+else Успешно
+  Rel(orchestrator, client, "5. Токены (login)", "JSON")
+end
+@enduml

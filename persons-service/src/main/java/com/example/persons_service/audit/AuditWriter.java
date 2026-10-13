@@ -3,10 +3,11 @@ package com.example.persons_service.audit;
 import com.example.persons_service.entity.AddressEntity;
 import com.example.persons_service.entity.IndividualEntity;
 import com.example.persons_service.entity.UserEntity;
-import org.springframework.r2dbc.core.DatabaseClient;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
-import reactor.core.publisher.Mono;
 
+import java.sql.Types;
 import java.time.OffsetDateTime;
 import java.util.Objects;
 import java.util.UUID;
@@ -14,9 +15,9 @@ import java.util.UUID;
 /**
  * Аудит изменений агрегата.
  *
- * <p>Заменяет Hibernate Envers: Envers — часть Hibernate ORM (блокирующий JPA) и с R2DBC
- * несовместим. Схема и семантика сохранены такими же, как были у Envers, поэтому история
- * читается теми же запросами:</p>
+ * <p>Схема и семантика совпадают с Hibernate Envers (ревизии, {@code revtype} 0/1/2,
+ * флаги {@code *_mod}, полный снимок при удалении), поэтому история читается теми же
+ * запросами:</p>
  *
  * <ul>
  *   <li>одна ревизия на одну транзакцию изменения агрегата ({@code revinfo} + {@code revinfo_seq});</li>
@@ -58,119 +59,109 @@ public class AuditWriter {
                     :archived_at_mod, :status_mod, :user_mod)
             """;
 
-    private final DatabaseClient databaseClient;
+    private final NamedParameterJdbcTemplate jdbc;
 
-    public AuditWriter(DatabaseClient databaseClient) {
-        this.databaseClient = databaseClient;
+    public AuditWriter(NamedParameterJdbcTemplate jdbc) {
+        this.jdbc = jdbc;
     }
 
     /** Открывает ревизию и возвращает её номер. */
-    public Mono<Integer> openRevision() {
-        return databaseClient.sql(
-                        "INSERT INTO person.revinfo (rev, revtstmp) VALUES (nextval('person.revinfo_seq'), :timestamp) RETURNING rev")
-                .bind("timestamp", System.currentTimeMillis())
-                .map((row, metadata) -> row.get("rev", Integer.class))
-                .one();
+    public int openRevision() {
+        return jdbc.getJdbcTemplate().queryForObject(
+                "INSERT INTO person.revinfo (rev, revtstmp) VALUES (nextval('person.revinfo_seq'), ?) RETURNING rev",
+                Integer.class,
+                System.currentTimeMillis());
     }
 
-    public Mono<Void> writeUser(int rev,
-                                short revType,
-                                UserEntity before,
-                                UserEntity after,
-                                boolean individualChanged) {
+    public void writeUser(int rev,
+                          short revType,
+                          UserEntity before,
+                          UserEntity after,
+                          boolean individualChanged) {
         boolean snapshot = revType != UPDATE;
 
-        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(USER_AUD_SQL)
-                .bind("rev", rev)
-                .bind("revtype", revType)
-                .bind("id", after.getId());
-        spec = bindString(spec, "secret_key", after.getSecretKey());
-        spec = bindString(spec, "email", after.getEmail());
-        spec = bindTime(spec, "created", after.getCreated());
-        spec = bindTime(spec, "updated", after.getUpdated());
-        spec = bindString(spec, "first_name", after.getFirstName());
-        spec = bindString(spec, "last_name", after.getLastName());
-        spec = spec.bind("filled", after.isFilled());
-        spec = bindUuid(spec, "address_id", after.getAddressId());
-        spec = spec.bind("secret_key_mod", snapshot || !Objects.equals(before.getSecretKey(), after.getSecretKey()));
-        spec = spec.bind("email_mod", snapshot || !Objects.equals(before.getEmail(), after.getEmail()));
-        spec = spec.bind("created_mod", snapshot || !Objects.equals(before.getCreated(), after.getCreated()));
-        spec = spec.bind("updated_mod", snapshot || !Objects.equals(before.getUpdated(), after.getUpdated()));
-        spec = spec.bind("first_name_mod", snapshot || !Objects.equals(before.getFirstName(), after.getFirstName()));
-        spec = spec.bind("last_name_mod", snapshot || !Objects.equals(before.getLastName(), after.getLastName()));
-        spec = spec.bind("filled_mod", snapshot || before.isFilled() != after.isFilled());
-        spec = spec.bind("address_mod", snapshot || !Objects.equals(before.getAddressId(), after.getAddressId()));
-        spec = spec.bind("individual_mod", snapshot || individualChanged);
+        MapSqlParameterSource p = new MapSqlParameterSource();
+        p.addValue("rev", rev);
+        p.addValue("revtype", revType);
+        p.addValue("id", after.getId());
+        bind(p, "secret_key", after.getSecretKey(), Types.VARCHAR);
+        bind(p, "email", after.getEmail(), Types.VARCHAR);
+        bind(p, "created", after.getCreated(), Types.TIMESTAMP_WITH_TIMEZONE);
+        bind(p, "updated", after.getUpdated(), Types.TIMESTAMP_WITH_TIMEZONE);
+        bind(p, "first_name", after.getFirstName(), Types.VARCHAR);
+        bind(p, "last_name", after.getLastName(), Types.VARCHAR);
+        p.addValue("filled", after.isFilled());
+        bind(p, "address_id", after.getAddressId(), Types.OTHER);
+        p.addValue("secret_key_mod", snapshot || !Objects.equals(before.getSecretKey(), after.getSecretKey()));
+        p.addValue("email_mod", snapshot || !Objects.equals(before.getEmail(), after.getEmail()));
+        p.addValue("created_mod", snapshot || !Objects.equals(before.getCreated(), after.getCreated()));
+        p.addValue("updated_mod", snapshot || !Objects.equals(before.getUpdated(), after.getUpdated()));
+        p.addValue("first_name_mod", snapshot || !Objects.equals(before.getFirstName(), after.getFirstName()));
+        p.addValue("last_name_mod", snapshot || !Objects.equals(before.getLastName(), after.getLastName()));
+        p.addValue("filled_mod", snapshot || before.isFilled() != after.isFilled());
+        p.addValue("address_mod", snapshot || !Objects.equals(before.getAddressId(), after.getAddressId()));
+        p.addValue("individual_mod", snapshot || individualChanged);
 
-        return spec.then();
+        jdbc.update(USER_AUD_SQL, p);
     }
 
-    public Mono<Void> writeAddress(int rev, short revType, AddressEntity entity) {
-        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(ADDRESS_AUD_SQL)
-                .bind("rev", rev)
-                .bind("revtype", revType)
-                .bind("id", entity.getId());
-        spec = bindTime(spec, "created", entity.getCreated());
-        spec = bindTime(spec, "updated", entity.getUpdated());
-        spec = bindString(spec, "address", entity.getAddress());
-        spec = bindString(spec, "zip_code", entity.getZipCode());
-        spec = bindTime(spec, "archived", entity.getArchived());
-        spec = bindString(spec, "city", entity.getCity());
-        spec = bindString(spec, "state", entity.getState());
-        return spec.then();
+    public void writeAddress(int rev, short revType, AddressEntity entity) {
+        MapSqlParameterSource p = new MapSqlParameterSource();
+        p.addValue("rev", rev);
+        p.addValue("revtype", revType);
+        p.addValue("id", entity.getId());
+        bind(p, "created", entity.getCreated(), Types.TIMESTAMP_WITH_TIMEZONE);
+        bind(p, "updated", entity.getUpdated(), Types.TIMESTAMP_WITH_TIMEZONE);
+        bind(p, "address", entity.getAddress(), Types.VARCHAR);
+        bind(p, "zip_code", entity.getZipCode(), Types.VARCHAR);
+        bind(p, "archived", entity.getArchived(), Types.TIMESTAMP_WITH_TIMEZONE);
+        bind(p, "city", entity.getCity(), Types.VARCHAR);
+        bind(p, "state", entity.getState(), Types.VARCHAR);
+
+        jdbc.update(ADDRESS_AUD_SQL, p);
     }
 
-    public Mono<Void> writeIndividual(int rev,
-                                      short revType,
-                                      IndividualEntity before,
-                                      IndividualEntity after) {
+    public void writeIndividual(int rev,
+                                short revType,
+                                IndividualEntity before,
+                                IndividualEntity after) {
         boolean snapshot = revType != UPDATE;
         String status = after.getStatus() == null ? null : after.getStatus().name();
 
-        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(INDIVIDUAL_AUD_SQL)
-                .bind("rev", rev)
-                .bind("revtype", revType)
-                .bind("id", after.getId());
-        spec = bindUuid(spec, "user_id", after.getUserId());
-        spec = bindString(spec, "passport_number", after.getPassportNumber());
-        spec = bindString(spec, "phone_number", after.getPhoneNumber());
-        spec = bindTime(spec, "verified_at", after.getVerifiedAt());
-        spec = bindTime(spec, "archived_at", after.getArchivedAt());
-        spec = bindString(spec, "status", status);
-        spec = spec.bind("passport_number_mod",
+        MapSqlParameterSource p = new MapSqlParameterSource();
+        p.addValue("rev", rev);
+        p.addValue("revtype", revType);
+        p.addValue("id", after.getId());
+        bind(p, "user_id", after.getUserId(), Types.OTHER);
+        bind(p, "passport_number", after.getPassportNumber(), Types.VARCHAR);
+        bind(p, "phone_number", after.getPhoneNumber(), Types.VARCHAR);
+        bind(p, "verified_at", after.getVerifiedAt(), Types.TIMESTAMP_WITH_TIMEZONE);
+        bind(p, "archived_at", after.getArchivedAt(), Types.TIMESTAMP_WITH_TIMEZONE);
+        bind(p, "status", status, Types.VARCHAR);
+        p.addValue("passport_number_mod",
                 snapshot || !Objects.equals(before.getPassportNumber(), after.getPassportNumber()));
-        spec = spec.bind("phone_number_mod",
+        p.addValue("phone_number_mod",
                 snapshot || !Objects.equals(before.getPhoneNumber(), after.getPhoneNumber()));
-        spec = spec.bind("verified_at_mod",
+        p.addValue("verified_at_mod",
                 snapshot || !Objects.equals(before.getVerifiedAt(), after.getVerifiedAt()));
-        spec = spec.bind("archived_at_mod",
+        p.addValue("archived_at_mod",
                 snapshot || !Objects.equals(before.getArchivedAt(), after.getArchivedAt()));
-        spec = spec.bind("status_mod", snapshot || before.getStatus() != after.getStatus());
-        spec = spec.bind("user_mod", snapshot || !Objects.equals(before.getUserId(), after.getUserId()));
+        p.addValue("status_mod", snapshot || before.getStatus() != after.getStatus());
+        p.addValue("user_mod", snapshot || !Objects.equals(before.getUserId(), after.getUserId()));
 
-        return spec.then();
+        jdbc.update(INDIVIDUAL_AUD_SQL, p);
     }
 
     // ------------------------------------------------------------------
-    // Привязка параметров: DatabaseClient не принимает null в bind,
-    // для nullable-колонок нужен bindNull с явным типом.
+    // Привязка параметров: JdbcTemplate не принимает null без явного типа,
+    // для nullable-колонок указываем SQL-тип.
     // ------------------------------------------------------------------
 
-    private static DatabaseClient.GenericExecuteSpec bindString(DatabaseClient.GenericExecuteSpec spec,
-                                                                String name,
-                                                                String value) {
-        return value == null ? spec.bindNull(name, String.class) : spec.bind(name, value);
-    }
-
-    private static DatabaseClient.GenericExecuteSpec bindUuid(DatabaseClient.GenericExecuteSpec spec,
-                                                              String name,
-                                                              UUID value) {
-        return value == null ? spec.bindNull(name, UUID.class) : spec.bind(name, value);
-    }
-
-    private static DatabaseClient.GenericExecuteSpec bindTime(DatabaseClient.GenericExecuteSpec spec,
-                                                              String name,
-                                                              OffsetDateTime value) {
-        return value == null ? spec.bindNull(name, OffsetDateTime.class) : spec.bind(name, value);
+    private static void bind(MapSqlParameterSource params, String name, Object value, int sqlType) {
+        if (value == null) {
+            params.addValue(name, null, sqlType);
+        } else {
+            params.addValue(name, value);
+        }
     }
 }

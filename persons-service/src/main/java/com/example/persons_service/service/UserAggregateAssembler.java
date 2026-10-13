@@ -15,7 +15,6 @@ import net.example.person.dto.UpdateAddressRequest;
 import net.example.person.dto.UpdateIndividualRequest;
 import net.example.person.dto.UpdateUserRequest;
 import org.springframework.stereotype.Component;
-import reactor.core.publisher.Mono;
 
 import java.time.Clock;
 import java.time.OffsetDateTime;
@@ -42,14 +41,13 @@ public class UserAggregateAssembler {
     }
 
     /** Готовит новый агрегат к вставке (страна резолвится, если передан адрес). */
-    public Mono<UserAggregate> forCreate(CreateUserRequest request) {
+    public UserAggregate forCreate(CreateUserRequest request) {
         OffsetDateTime now = OffsetDateTime.now(clock);
         if (request.getAddress() == null) {
-            return Mono.just(newAggregate(request, null, null, now));
+            return newAggregate(request, null, null, now);
         }
-        return countryResolver.forCreate(request.getAddress())
-                .map(country -> newAggregate(
-                        request, country, newAddress(request.getAddress(), country, now), now));
+        CountryEntity country = countryResolver.forCreate(request.getAddress());
+        return newAggregate(request, country, newAddress(request.getAddress(), country, now), now);
     }
 
     /**
@@ -60,10 +58,9 @@ public class UserAggregateAssembler {
      * патч с {@code changed = false} — ни записи, ни ревизии не будет, а {@code updatedAt}
      * не сдвигается на пустом запросе.</p>
      */
-    public Mono<AggregatePatch> forUpdate(UserAggregate before, UpdateUserRequest request) {
-        return countryResolver.forUpdate(before, request)
-                .map(country -> applyPatch(before, request, country))
-                .switchIfEmpty(Mono.fromSupplier(() -> applyPatch(before, request, null)));
+    public AggregatePatch forUpdate(UserAggregate before, UpdateUserRequest request) {
+        CountryEntity country = countryResolver.forUpdate(before, request);
+        return applyPatch(before, request, country);
     }
 
     // ------------------------------------------------------------------
@@ -173,11 +170,24 @@ public class UserAggregateAssembler {
         CountryEntity country = resolvedCountry != null ? resolvedCountry : before.country();
 
         return new AggregatePatch(
-                before,
+                snapshot(before),
                 new UserAggregate(user, address, individual, country),
                 true,
                 new AggregatePatch.AddressChange(address, addressCreated, addressTouched),
                 new AggregatePatch.IndividualChange(individual, individualCreated, individualTouched));
+    }
+
+    /**
+     * Снимок «до» для аудита обязательно detached: иначе merge в store.update мутирует
+     * managed-сущности (загруженные из БД), и состояние «до» совпадёт с «после»,
+     * из-за чего флаги *_mod окажутся неверными.
+     */
+    private UserAggregate snapshot(UserAggregate aggregate) {
+        return new UserAggregate(
+                aggregate.user().copy(),
+                aggregate.address() == null ? null : aggregate.address().copy(),
+                aggregate.individual() == null ? null : aggregate.individual().copy(),
+                aggregate.country());
     }
 
     // ------------------------------------------------------------------

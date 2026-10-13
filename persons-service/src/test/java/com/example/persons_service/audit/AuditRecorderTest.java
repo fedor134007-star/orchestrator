@@ -13,14 +13,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import reactor.core.publisher.Mono;
-import reactor.test.StepVerifier;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyShort;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -40,12 +38,7 @@ class AuditRecorderTest {
     @BeforeEach
     void setUp() {
         recorder = new AuditRecorder(auditWriter);
-        lenient().when(auditWriter.openRevision()).thenReturn(Mono.just(REVISION));
-        lenient().when(auditWriter.writeUser(anyInt(), anyShort(), any(), any(), anyBoolean()))
-                .thenReturn(Mono.empty());
-        lenient().when(auditWriter.writeAddress(anyInt(), anyShort(), any())).thenReturn(Mono.empty());
-        lenient().when(auditWriter.writeIndividual(anyInt(), anyShort(), any(), any()))
-                .thenReturn(Mono.empty());
+        lenient().when(auditWriter.openRevision()).thenReturn(REVISION);
     }
 
     @Test
@@ -53,8 +46,7 @@ class AuditRecorderTest {
     void recordsCreation() {
         UserAggregate aggregate = fullAggregate();
 
-        StepVerifier.create(recorder.recordCreated(aggregate))
-                .verifyComplete();
+        recorder.recordCreated(aggregate);
 
         verify(auditWriter).writeUser(REVISION, AuditWriter.INSERT, aggregate.user(), aggregate.user(), true);
         verify(auditWriter).writeAddress(REVISION, AuditWriter.INSERT, aggregate.address());
@@ -66,8 +58,7 @@ class AuditRecorderTest {
     void recordsCreationWithoutNestedEntities() {
         UserAggregate aggregate = new UserAggregate(user(), null, null, null);
 
-        StepVerifier.create(recorder.recordCreated(aggregate))
-                .verifyComplete();
+        recorder.recordCreated(aggregate);
 
         verify(auditWriter).writeUser(REVISION, AuditWriter.INSERT, aggregate.user(), aggregate.user(), false);
         verify(auditWriter, never()).writeAddress(anyInt(), anyShort(), any());
@@ -86,8 +77,7 @@ class AuditRecorderTest {
                 new AggregatePatch.AddressChange(after.address(), false, true),
                 new AggregatePatch.IndividualChange(after.individual(), false, false));
 
-        StepVerifier.create(recorder.recordUpdated(patch, after))
-                .verifyComplete();
+        recorder.recordUpdated(patch, after);
 
         verify(auditWriter).writeUser(REVISION, AuditWriter.UPDATE, before.user(), after.user(), false);
         verify(auditWriter).writeAddress(REVISION, AuditWriter.UPDATE, after.address());
@@ -105,8 +95,7 @@ class AuditRecorderTest {
                 new AggregatePatch.AddressChange(after.address(), true, true),
                 new AggregatePatch.IndividualChange(after.individual(), true, true));
 
-        StepVerifier.create(recorder.recordUpdated(patch, after))
-                .verifyComplete();
+        recorder.recordUpdated(patch, after);
 
         verify(auditWriter).writeUser(REVISION, AuditWriter.UPDATE, before.user(), after.user(), true);
         verify(auditWriter).writeAddress(REVISION, AuditWriter.INSERT, after.address());
@@ -118,8 +107,7 @@ class AuditRecorderTest {
     void recordsDeletion() {
         UserAggregate aggregate = fullAggregate();
 
-        StepVerifier.create(recorder.recordDeleted(aggregate))
-                .verifyComplete();
+        recorder.recordDeleted(aggregate);
 
         verify(auditWriter).writeUser(REVISION, AuditWriter.DELETE, aggregate.user(), aggregate.user(), true);
         verify(auditWriter).writeAddress(REVISION, AuditWriter.DELETE, aggregate.address());
@@ -129,11 +117,10 @@ class AuditRecorderTest {
     @Test
     @DisplayName("если ревизию открыть не удалось, ошибка пробрасывается")
     void propagatesRevisionFailure() {
-        when(auditWriter.openRevision()).thenReturn(Mono.error(new IllegalStateException("нет соединения")));
+        when(auditWriter.openRevision()).thenThrow(new IllegalStateException("нет соединения"));
 
-        StepVerifier.create(recorder.recordCreated(fullAggregate()))
-                .expectError(IllegalStateException.class)
-                .verify();
+        assertThatThrownBy(() -> recorder.recordCreated(fullAggregate()))
+                .isInstanceOf(IllegalStateException.class);
 
         verify(auditWriter, never()).writeUser(anyInt(), anyShort(), any(), any(), anyBoolean());
     }

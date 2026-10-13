@@ -1,25 +1,23 @@
 package com.example.persons_service.exception;
 
+import jakarta.servlet.http.HttpServletRequest;
 import net.example.person.dto.CreateUserRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpInputMessage;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
-import org.springframework.http.server.reactive.ServerHttpRequest;
-import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
-import org.springframework.mock.web.server.MockServerWebExchange;
-import org.springframework.web.server.ResponseStatusException;
-import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.ServerWebInputException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("ProblemDetailsAdvice: ответы RFC 9457 на WebFlux")
+@DisplayName("ProblemDetailsAdvice: ответы RFC 9457 на Spring MVC")
 class ProblemDetailsAdviceTest {
 
     private final ProblemDetailsAdvice advice = new ProblemDetailsAdvice();
@@ -29,7 +27,7 @@ class ProblemDetailsAdviceTest {
     void userNotFound() {
         ProblemDetail problem = advice.handleUserNotFound(
                 new UserNotFoundException(UUID.fromString("6c8ec4d0-6fd5-4db8-bf4d-7bcbdb2f6c02")),
-                exchange("/api/v1/users/6c8ec4d0-6fd5-4db8-bf4d-7bcbdb2f6c02"));
+                request("/api/v1/users/6c8ec4d0-6fd5-4db8-bf4d-7bcbdb2f6c02"));
 
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.NOT_FOUND.value());
         assertThat(problem.getType()).isEqualTo(ProblemTypes.USER_NOT_FOUND);
@@ -42,7 +40,7 @@ class ProblemDetailsAdviceTest {
     void emailConflict() {
         ProblemDetail problem = advice.handleEmailConflict(
                 new EmailAlreadyExistsException("ivan.petrov@example.org"),
-                exchange("/api/v1/users"));
+                request("/api/v1/users"));
 
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.CONFLICT.value());
         assertThat(problem.getType()).isEqualTo(ProblemTypes.EMAIL_ALREADY_EXISTS);
@@ -59,7 +57,7 @@ class ProblemDetailsAdviceTest {
                 "lastName", "не должно равняться null");
 
         ProblemDetail problem = advice.handleRequestValidation(
-                new RequestValidationException(errors), exchange("/api/v1/users"));
+                new RequestValidationException(errors), request("/api/v1/users"));
 
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST.value());
         assertThat(problem.getType()).isEqualTo(ProblemTypes.VALIDATION_ERROR);
@@ -76,7 +74,7 @@ class ProblemDetailsAdviceTest {
     void unknownCountry() {
         ProblemDetail problem = advice.handleUnknownCountry(
                 new UnknownCountryException("Страна с кодом alpha-3 ZZZ не найдена в справочнике"),
-                exchange("/api/v1/users"));
+                request("/api/v1/users"));
 
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST.value());
         assertThat(problem.getType()).isEqualTo(ProblemTypes.UNKNOWN_COUNTRY);
@@ -87,17 +85,18 @@ class ProblemDetailsAdviceTest {
     void incompleteAggregate() {
         ProblemDetail problem = advice.handleIncompleteAggregate(
                 new IncompleteAggregateUpdateException("Адрес должен содержать city, addressLine и код страны"),
-                exchange("/api/v1/users/1"));
+                request("/api/v1/users/1"));
 
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST.value());
         assertThat(problem.getType()).isEqualTo(ProblemTypes.VALIDATION_ERROR);
     }
 
     @Test
-    @DisplayName("400: битый формат запроса (WebFlux WebInputException)")
+    @DisplayName("400: битый формат запроса")
     void malformedRequest() {
         ProblemDetail problem = advice.handleMalformedRequest(
-                new ServerWebInputException("Failed to read HTTP message"), exchange("/api/v1/users"));
+                new HttpMessageNotReadableException("Failed to read HTTP message", (HttpInputMessage) null),
+                request("/api/v1/users"));
 
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST.value());
         assertThat(problem.getType()).isEqualTo(ProblemTypes.VALIDATION_ERROR);
@@ -108,7 +107,7 @@ class ProblemDetailsAdviceTest {
     void dataIntegrityViolation() {
         ProblemDetail problem = advice.handleDataIntegrity(
                 new DataIntegrityViolationException("insert failed", new RuntimeException("duplicate key value")),
-                exchange("/api/v1/users"));
+                request("/api/v1/users"));
 
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.CONFLICT.value());
         assertThat(problem.getType()).isEqualTo(ProblemTypes.EMAIL_ALREADY_EXISTS);
@@ -119,27 +118,17 @@ class ProblemDetailsAdviceTest {
     void concurrentModification() {
         ProblemDetail problem = advice.handleConcurrentModification(
                 new OptimisticLockingFailureException("row was updated"),
-                exchange("/api/v1/users/1"));
+                request("/api/v1/users/1"));
 
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.CONFLICT.value());
         assertThat(problem.getType()).isEqualTo(ProblemTypes.CONCURRENT_MODIFICATION);
     }
 
     @Test
-    @DisplayName("404: неизвестный ресурс через ResponseStatusException")
-    void responseStatusNotFound() {
-        ProblemDetail problem = advice.handleResponseStatus(
-                new ResponseStatusException(HttpStatus.NOT_FOUND), exchange("/api/v1/unknown-resource"));
-
-        assertThat(problem.getStatus()).isEqualTo(HttpStatus.NOT_FOUND.value());
-        assertThat(problem.getType()).isEqualTo(ProblemTypes.RESOURCE_NOT_FOUND);
-    }
-
-    @Test
     @DisplayName("500: непредвиденная ошибка не раскрывает деталей")
     void unexpectedError() {
         ProblemDetail problem = advice.handleUnexpected(
-                new IllegalStateException("внутренние детали"), exchange("/api/v1/users"));
+                new IllegalStateException("внутренние детали"), request("/api/v1/users"));
 
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR.value());
         assertThat(problem.getType()).isEqualTo(ProblemTypes.INTERNAL_ERROR);
@@ -155,7 +144,7 @@ class ProblemDetailsAdviceTest {
         assertThat(request.getEmail()).isEqualTo("not-an-email");
     }
 
-    private ServerWebExchange exchange(String path) {
-        return MockServerWebExchange.from(MockServerHttpRequest.get(path));
+    private HttpServletRequest request(String path) {
+        return new MockHttpServletRequest("GET", path);
     }
 }

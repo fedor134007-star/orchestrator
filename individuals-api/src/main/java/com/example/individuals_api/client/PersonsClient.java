@@ -4,6 +4,8 @@ import net.example.person.dto.UserResponse;
 import net.generated.individuals.dto.RegistrationRequest;
 import reactor.core.publisher.Mono;
 
+import java.util.UUID;
+
 /**
  * Порт доступа к person-service.
  *
@@ -19,4 +21,10 @@ public interface PersonsClient {
      * @return пользователь или пустой {@link Mono}, если в person-service его нет (404)
      */
     Mono<UserResponse> getPersonByEmail(String email);
+
+    /**
+     * Компенсирующее удаление пользователя из person-service.
+     * Идемпотентно: 404 (уже удалён) не считается ошибкой.
+     */
+    Mono<Void> deletePerson(UUID userId);
 }

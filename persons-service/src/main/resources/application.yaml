@@ -6,34 +6,19 @@ spring:
   application:
     name: person-service
 
-  # В реактивном стеке MDC — это ThreadLocal, который не переносится между операторами Reactor.
-  # auto включает контекстную пропагацию (context-propagation уже на classpath): traceId/spanId
-  # снова попадают в JSON-логи, и их можно связать с трейсами в Tempo/Grafana.
-  reactor:
-    context-propagation: auto
+  # Все значения (БД, пул, OTLP, трейсинг) вынесены в person-service.properties.
+  config:
+    import: optional:classpath:person-service.properties
 
-  # Рабочий доступ к БД — реактивный (R2DBC, неблокирующий драйвер)
-  r2dbc:
-    url: r2dbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5434}/${POSTGRES_DB:person}
-    username: ${POSTGRES_USER:postgres}
-    password: ${POSTGRES_PASSWORD:postgres}
-    pool:
-      enabled: true
-      initial-size: 5
-      max-size: 20
-      max-idle-time: 30m
-      validation-query: SELECT 1
-
-  # JDBC-подключение нужно только Flyway: миграции применяются синхронно при старте,
-  # до того как сервис начнёт принимать запросы. Схему person выставляет default-schema.
   datasource:
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5434}/${POSTGRES_DB:person}
-    username: ${POSTGRES_USER:postgres}
-    password: ${POSTGRES_PASSWORD:postgres}
-    hikari:
-      pool-name: person-service-flyway-pool
-      maximum-pool-size: 2
-      minimum-idle: 1
+    url: ${person-service.datasource.url}
+    username: ${person-service.datasource.username}
+    password: ${person-service.datasource.password}
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
 
   flyway:
     enabled: true
@@ -42,6 +27,14 @@ spring:
     default-schema: person
     validate-on-migrate: true
     clean-disabled: true
+
+  # Запрос к несуществующему пути должен попадать в @RestControllerAdvice как
+  # NoResourceFoundException и отдавать RFC 9457, а не пустую страницу /error.
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
 
 management:
   endpoints:
@@ -57,26 +50,24 @@ management:
       access: read_only
   tracing:
     sampling:
-      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+      probability: ${person-service.tracing.sampling}
   opentelemetry:
     resource-attributes:
       service.name: ${spring.application.name}
     tracing:
       export:
         otlp:
-          endpoint: ${OTLP_EXPORTER_ENDPOINT:http://localhost:4318/v1/traces}
+          endpoint: ${person-service.otlp.endpoint}
   otlp:
     metrics:
       export:
-        # Метрики отдаёт Prometheus; дублирующий OTLP-экспорт отключён,
-        # иначе Micrometer каждую минуту безуспешно шлёт их в localhost:4318
-        # и засоряет логи WARN-строками.
+        # Метрики отдаёт Prometheus; дублирующий OTLP-экспорт отключён.
         enabled: false
 
 info:
   app:
     name: ${spring.application.name}
-    description: Person domain service (module 2, WebFlux + R2DBC)
+    description: Person domain service (module 2, Spring MVC + JPA)
     version: 1.0.0
 
 logging:

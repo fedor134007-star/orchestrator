@@ -115,9 +115,6 @@ services:
       # OTLP/HTTP приёмник — Alloy, который перекладывает трейсы в Tempo
       OTLP_EXPORTER_ENDPOINT: http://alloy:4318/v1/traces
       TRACING_SAMPLING_PROBABILITY: "1.0"
-      # Реактивный стек: переносить MDC (traceId/spanId) через операторы Reactor,
-      # чтобы traceId попадал в JSON-логи и логи связывались с трейсами в Grafana.
-      SPRING_REACTOR_CONTEXT_PROPAGATION: "auto"
       # Метрики отдаёт Prometheus; отключаем дублирующий OTLP-экспорт метрик (шум в логах).
       MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
     depends_on:

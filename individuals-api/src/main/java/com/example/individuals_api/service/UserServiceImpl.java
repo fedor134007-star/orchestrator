@@ -60,7 +60,18 @@ public class UserServiceImpl implements UserService {
                                             tokenResponse.setKeycloakUserId(keycloakUserId);
                                             return tokenResponse;
                                         });
-                            });
+                            })
+                            // Компенсация (saga): доменный пользователь уже создан в person-service.
+                            // Если регистрация в Keycloak или получение токена не удались, откатываем
+                            // пользователя из person-service, чтобы не оставить «висячий» аккаунт
+                            // без учётной записи в системе идентификации.
+                            .onErrorResume(error -> personsClient.deletePerson(userUid)
+                                    .onErrorResume(compensationError -> {
+                                        log.warn("Не удалось откатить пользователя {} из person-service: {}",
+                                                userUid, compensationError.getMessage());
+                                        return Mono.empty();
+                                    })
+                                    .then(Mono.error(error)));
                 })
                 .doOnSuccess(r -> {
                     log.info("Registration completed for email: {}", request.getEmail());
