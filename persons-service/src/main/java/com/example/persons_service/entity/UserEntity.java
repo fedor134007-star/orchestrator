@@ -5,6 +5,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import org.hibernate.annotations.SQLRestriction;
+import org.hibernate.envers.Audited;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -16,8 +18,14 @@ import java.util.UUID;
  * идентификатором ({@code addressId}), агрегат собирается сервисным слоем явно —
  * это сохраняет явный контроль над порядком вставки и аудитом.</p>
  *
+ * <p>Мягкое удаление — флаг {@code deletedAt}: строка остаётся в БД (и в аудите Envers),
+ * но все чтения её не видят ({@code @SQLRestriction}). Email при этом освобождается —
+ * это и есть компенсационное удаление при неудачной регистрации.</p>
+ *
  * <p>Сервис не знает о Keycloak: {@code secretKey} — техническое поле доменной модели.</p>
  */
+@Audited(withModifiedFlag = true)
+@SQLRestriction("deleted_at IS NULL")
 @Entity
 @Table(name = "users", schema = "person")
 public class UserEntity {
@@ -54,6 +62,9 @@ public class UserEntity {
     @Column(name = "address_id")
     private UUID addressId;
 
+    @Column(name = "deleted_at")
+    private OffsetDateTime deletedAt;
+
     public static UserEntity newInstance() {
         UserEntity user = new UserEntity();
         user.setId(UUID.randomUUID());
@@ -73,6 +84,7 @@ public class UserEntity {
         copy.lastName = lastName;
         copy.filled = filled;
         copy.addressId = addressId;
+        copy.deletedAt = deletedAt;
         return copy;
     }
 
@@ -154,5 +166,13 @@ public class UserEntity {
 
     public void setAddressId(UUID addressId) {
         this.addressId = addressId;
+    }
+
+    public OffsetDateTime getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(OffsetDateTime deletedAt) {
+        this.deletedAt = deletedAt;
     }
 }

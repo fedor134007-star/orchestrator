@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import org.hibernate.envers.Audited;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -13,6 +14,7 @@ import java.util.UUID;
  * Адрес пользователя. Ссылка на справочник стран хранится идентификатором
  * ({@code countryId}), аудируется вместе с агрегатом.
  */
+@Audited(withModifiedFlag = true)
 @Entity
 @Table(name = "addresses", schema = "person")
 public class AddressEntity {

@@ -80,6 +80,8 @@ dependencies {
     // PERSISTENCE — Spring Data JPA + Hibernate (блокирующий JDBC-доступ)
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     runtimeOnly("org.postgresql:postgresql")
+    // Аудит — Hibernate Envers (@Audited)
+    implementation("org.hibernate.orm:hibernate-envers")
 
     // Flyway по JDBC: миграции выполняются синхронно при старте, до подъёма HTTP-сервера
     implementation("org.springframework.boot:spring-boot-starter-flyway")

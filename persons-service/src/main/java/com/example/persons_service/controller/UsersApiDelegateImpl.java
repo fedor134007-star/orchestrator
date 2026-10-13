@@ -50,9 +50,13 @@ public class UsersApiDelegateImpl implements UsersApiDelegate {
     }
 
     @Override
-    public ResponseEntity<Void> deleteUser(UUID id) {
-        personService.deleteUser(id);
+    public ResponseEntity<Void> deleteUser(UUID id, String mode) {
+        personService.deleteUser(id, isSoft(mode));
         return ResponseEntity.noContent().build();
+    }
+
+    private boolean isSoft(String mode) {
+        return "soft".equalsIgnoreCase(mode);
     }
 
     /** Location созданного ресурса — от текущего запроса. */

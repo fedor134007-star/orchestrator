@@ -52,7 +52,9 @@ public class PersonsClientImpl implements PersonsClient {
     public Mono<Void> deletePerson(UUID userId) {
         return Mono.<Void>fromRunnable(() -> {
             try {
-                ResponseEntity<Void> response = usersApi.deleteUser(userId);
+                // Компенсационное удаление — мягкое (mode=soft): строка остаётся в аудите,
+                // email освобождается для повторной регистрации.
+                ResponseEntity<Void> response = usersApi.deleteUser(userId, "soft");
                 if (!response.getStatusCode().is2xxSuccessful()) {
                     throw new PersonServiceException(
                             "person-service вернул " + response.getStatusCode() + " при удалении пользователя",

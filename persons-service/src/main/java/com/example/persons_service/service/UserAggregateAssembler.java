@@ -170,24 +170,11 @@ public class UserAggregateAssembler {
         CountryEntity country = resolvedCountry != null ? resolvedCountry : before.country();
 
         return new AggregatePatch(
-                snapshot(before),
+                before,
                 new UserAggregate(user, address, individual, country),
                 true,
                 new AggregatePatch.AddressChange(address, addressCreated, addressTouched),
                 new AggregatePatch.IndividualChange(individual, individualCreated, individualTouched));
-    }
-
-    /**
-     * Снимок «до» для аудита обязательно detached: иначе merge в store.update мутирует
-     * managed-сущности (загруженные из БД), и состояние «до» совпадёт с «после»,
-     * из-за чего флаги *_mod окажутся неверными.
-     */
-    private UserAggregate snapshot(UserAggregate aggregate) {
-        return new UserAggregate(
-                aggregate.user().copy(),
-                aggregate.address() == null ? null : aggregate.address().copy(),
-                aggregate.individual() == null ? null : aggregate.individual().copy(),
-                aggregate.country());
     }
 
     // ------------------------------------------------------------------

@@ -277,7 +277,7 @@ class PersonServiceIntegrationTest {
                 .andExpect(status().isOk());
 
         List<Map<String, Object>> revisions = jdbcTemplate.queryForList(
-                "select revtype, last_name, last_name_mod, email_mod, filled_mod, address_mod, individual_mod "
+                "select revtype, last_name, last_name_mod, email_mod, filled_mod, address_id_mod "
                         + "from person.users_aud where id = ? order by rev", userId);
 
         assertThat(revisions).hasSize(2);
@@ -287,7 +287,8 @@ class PersonServiceIntegrationTest {
         assertThat(revisions.get(1).get("last_name_mod")).isEqualTo(true);
         assertThat(revisions.get(1).get("email_mod")).isEqualTo(false);
         assertThat(revisions.get(1).get("filled_mod")).isEqualTo(false);
-        assertThat(revisions.get(1).get("address_mod")).isEqualTo(false);
+        // address_id не менялся (изменились поля адреса в addresses_aud), флаг false
+        assertThat(revisions.get(1).get("address_id_mod")).isEqualTo(false);
 
         List<Map<String, Object>> addressRevisions = jdbcTemplate.queryForList(
                 "select revtype, city from person.addresses_aud where id = ? order by rev", addressId);
@@ -331,6 +332,29 @@ class PersonServiceIntegrationTest {
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from person.addresses_aud where id = ? and revtype = 2", Integer.class, addressId))
                 .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("мягкое удаление: строка остаётся, чтение 404, email освобождается")
+    void softDeletesAndFreesEmail() throws Exception {
+        String email = uniqueEmail();
+        String id = createUser(email);
+
+        mockMvc.perform(delete("/api/v1/users/{id}", id).param("mode", "soft"))
+                .andExpect(status().isNoContent());
+
+        // Чтение скрывает мягко удалённого пользователя
+        mockMvc.perform(get("/api/v1/users/{id}", id))
+                .andExpect(status().isNotFound());
+
+        // Строка осталась, deleted_at проставлен
+        assertThat(count("select count(*) from person.users where id = ?", UUID.fromString(id))).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "select deleted_at is not null from person.users where id = ?", Boolean.class, UUID.fromString(id)))
+                .isTrue();
+
+        // Email освобождён: повторная регистрация с тем же email проходит
+        createUser(email);
     }
 
     @Test

@@ -11,7 +11,7 @@
 |---|---|
 | Стек | Java 25, Spring Boot 4.0.7, Spring Framework 7, **Spring MVC** + **Spring Data JPA** (Hibernate), PostgreSQL 17 |
 | Миграции | Flyway по JDBC на старте приложения (рабочий путь запроса — JDBC через HikariCP) |
-| Аудит | собственный writer поверх `JdbcTemplate` в той же транзакции; схема совместима с Envers (см. ниже) |
+| Аудит | Hibernate Envers (`@Audited(withModifiedFlag = true)`), таблицы `*_aud`/`revinfo` создаёт миграция V005 |
 | Порт | `8092` (в compose дополнительно опубликован алиас `8082`, чтобы команды из ТЗ работали как есть) |
 | Схема БД | `person` |
 | Артефакты | `person-service.jar` (OCI-образ) и `person-service-client` (библиотека для потребителей) |
@@ -24,7 +24,8 @@
 | Получение по идентификатору | `GET /api/v1/users/{id}` | `200 OK` |
 | Получение по email | `GET /api/v1/users/by-email?email=` | `200 OK` |
 | Изменение пользователя | `PATCH /api/v1/users/{id}` | `200 OK` |
-| Удаление пользователя | `DELETE /api/v1/users/{id}` | `204 No Content` |
+| Удаление пользователя | `DELETE /api/v1/users/{id}?mode=hard` | `204 No Content` |
+| Мягкое удаление (компенсация) | `DELETE /api/v1/users/{id}?mode=soft` | `204 No Content` |
 
 Контракт: [`openapi/person-service.yaml`](openapi/person-service.yaml). Схемы — `CreateUserRequest`,
 `UpdateUserRequest`, `UserResponse`, `AddressResponse`, `IndividualResponse`, `ProblemResponse`.
@@ -38,7 +39,9 @@
 * `filled = true`, когда заполнены и адрес, и индивидуальные данные;
 * PATCH имеет patch-семантику: отсутствующее поле (в том числе во вложенном объекте)
   не изменяется; попытка создать неполный адрес отклоняется с `400`;
-* удаление физическое, история остаётся в аудитных таблицах.
+* удаление физическое (`mode=hard`, по умолчанию) или мягкое (`mode=soft`, компенсационное:
+  строка остаётся, исключается из чтений, email освобождается для повторной регистрации);
+  история остаётся в аудите Envers.
 
 ### Ошибки (RFC 9457)
 
@@ -73,7 +76,6 @@ UUID в пути). Запрос к несуществующему маршрут
 | [`PersonServiceImpl`](src/main/java/com/example/persons_service/service/PersonServiceImpl.java) | сценарии (create/read/update/delete) и транзакционная граница; политики не содержит |
 | [`UserAggregateAssembler`](src/main/java/com/example/persons_service/service/UserAggregateAssembler.java) | сборка агрегата из запроса, patch-семантика, полнота адреса, пересчёт `filled`, определение того, что реально изменилось |
 | [`UserAggregateStore`](src/main/java/com/example/persons_service/repository/UserAggregateStore.java) | чтение и запись агрегата поверх трёх JPA-таблиц, порядок операций из-за внешних ключей, «может отсутствовать» для вложенных сущностей |
-| [`AuditRecorder`](src/main/java/com/example/persons_service/audit/AuditRecorder.java) | одна ревизия на операцию; сценарии не знают про три аудитные таблицы |
 | [`CountryResolver`](src/main/java/com/example/persons_service/service/CountryResolver.java) | справочник стран, согласованность alpha-2/alpha-3, обязательность кода |
 | [`RequestValidator`](src/main/java/com/example/persons_service/service/RequestValidator.java) | валидация тела по аннотациям контракта и нормализация email |
 
@@ -90,8 +92,9 @@ Flyway-миграции: [`src/main/resources/db/migration`](src/main/resources/
 | `V002` | таблицы `countries`, `addresses`, `users`, `individuals` |
 | `V003` | `uk_users_email_lower`, индексы внешних ключей |
 | `V004` | справочник стран (ISO 3166-1) |
-| `V005` | аудитные таблицы (`*_aud`, `revinfo`) |
-| `V006` | шаг последовательности ревизий = 1 и подтягивание её к существующим ревизиям |
+| `V005` | аудитные таблицы Envers (`*_aud`, `revinfo`, `revinfo_seq` с шагом 50) |
+| `V006` | мягкое удаление (`users.deleted_at`) |
+| `V007` | частичный уникальный индекс email — только активные пользователи |
 
 Схему создают только миграции: `spring.jpa.hibernate.ddl-auto=none`.
 
@@ -114,23 +117,20 @@ Flyway-миграции: [`src/main/resources/db/migration`](src/main/resources/
   из этих значений: `initial-size=5`, `max-size=20`, `max-idle-time=30m` (Hikari `idle-timeout` — `long`,
   поэтому читаемое `30m` преобразуется в миллисекунды здесь, а не в `spring.datasource.hikari.*`).
 
-### Аудит
+### Аудит (Hibernate Envers)
 
-Аудит реализован собственным writer'ом
-([`AuditWriter`](src/main/java/com/example/persons_service/audit/AuditWriter.java)) поверх
-`JdbcTemplate`, но **схема и семантика совпадают с Hibernate Envers**, поэтому история читается
-теми же запросами:
+Аудит пишет Hibernate Envers автоматически: сущности `UserEntity`, `AddressEntity`,
+`IndividualEntity` помечены `@Audited(withModifiedFlag = true)`, номер и метка времени ревизии —
+[`AuditRevisionEntity`](src/main/java/com/example/persons_service/audit/AuditRevisionEntity.java)
+(`@RevisionEntity`). Ручного кода аудита в сервисе нет.
 
 * одна ревизия на одну транзакцию изменения агрегата: `revinfo` + `person.revinfo_seq`;
-* `revtype`: `0` — создание, `1` — изменение, `2` — удаление;
+* `revtype`: `0` — создание, `1` — изменение (включая мягкое удаление), `2` — удаление;
 * колонки `<свойство>_mod` показывают, какие поля изменились
-  (`last_name_mod`, `email_mod`, `filled_mod`, `address_mod`, `individual_mod`, …);
-* при удалении пишется полный снимок состояния — аналог `store_data_at_delete`;
+  (`last_name_mod`, `email_mod`, `filled_mod`, `address_id_mod`, `deleted_at_mod`, …);
+* при удалении пишется полный снимок состояния (`org.hibernate.envers.store_data_at_delete=true`);
 * записи аудита идут в той же транзакции, что и данные, поэтому история не может разойтись
   с фактическим состоянием.
-
-Смысловое отличие: `users_aud.individual_mod` поднимается, когда в этой ревизии изменились
-индивидуальные данные (у Envers флаг относился к обратной связи, колонки для неё в таблице нет).
 
 Проверить историю:
 

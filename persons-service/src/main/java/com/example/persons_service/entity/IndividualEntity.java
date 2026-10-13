@@ -7,6 +7,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import org.hibernate.envers.Audited;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -15,6 +16,7 @@ import java.util.UUID;
  * Индивидуальные данные пользователя: паспорт, телефон, статус верификации.
  * Связь с пользователем — через {@code userId} (FK individuals.user_id).
  */
+@Audited(withModifiedFlag = true)
 @Entity
 @Table(name = "individuals", schema = "person")
 public class IndividualEntity {

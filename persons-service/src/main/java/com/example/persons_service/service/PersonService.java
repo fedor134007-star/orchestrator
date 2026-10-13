@@ -16,5 +16,11 @@ public interface PersonService {
 
     UserResponse updateUser(UUID id, UpdateUserRequest request);
 
-    void deleteUser(UUID id);
+    /**
+     * Удаляет пользователя.
+     *
+     * @param soft {@code true} — мягкое удаление (компенсационное: строка остаётся в БД
+     *             и в аудите, но исключается из чтений); {@code false} — физическое
+     */
+    void deleteUser(UUID id, boolean soft);
 }

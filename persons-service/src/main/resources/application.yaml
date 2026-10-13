@@ -19,6 +19,12 @@ spring:
     hibernate:
       ddl-auto: none
     open-in-view: false
+    properties:
+      org:
+        hibernate:
+          envers:
+            default_schema: person
+            store_data_at_delete: true
 
   flyway:
     enabled: true

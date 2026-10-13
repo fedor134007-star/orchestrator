@@ -2,7 +2,6 @@ package com.example.persons_service.service;
 
 import com.example.persons_service.aggregate.AggregatePatch;
 import com.example.persons_service.aggregate.UserAggregate;
-import com.example.persons_service.audit.AuditRecorder;
 import com.example.persons_service.entity.AddressEntity;
 import com.example.persons_service.entity.CountryEntity;
 import com.example.persons_service.entity.IndividualEntity;
@@ -23,6 +22,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
@@ -39,17 +40,14 @@ import static org.mockito.Mockito.when;
 @DisplayName("PersonServiceImpl: сценарии и их порядок")
 class PersonServiceImplTest {
 
-    private static final OffsetDateTime NOW =
-            OffsetDateTime.of(2026, 6, 8, 10, 15, 30, 0, ZoneOffset.UTC);
+    private static final Instant FIXED_INSTANT = Instant.parse("2026-06-08T10:15:30Z");
+    private static final OffsetDateTime NOW = OffsetDateTime.ofInstant(FIXED_INSTANT, ZoneOffset.UTC);
 
     @Mock
     private UserAggregateStore store;
 
     @Mock
     private UserAggregateAssembler assembler;
-
-    @Mock
-    private AuditRecorder auditRecorder;
 
     private PersonServiceImpl service;
 
@@ -58,13 +56,13 @@ class PersonServiceImplTest {
         service = new PersonServiceImpl(
                 store,
                 assembler,
-                auditRecorder,
                 new PersonDtoMapper(),
-                new RequestValidator(Validation.buildDefaultValidatorFactory().getValidator()));
+                new RequestValidator(Validation.buildDefaultValidatorFactory().getValidator()),
+                Clock.fixed(FIXED_INSTANT, ZoneOffset.UTC));
     }
 
     @Test
-    @DisplayName("создание: проверка email → сборка агрегата → вставка → ревизия → ответ")
+    @DisplayName("создание: проверка email → сборка агрегата → вставка → ответ")
     void createsAggregate() {
         CreateUserRequest request = createRequest();
         UserAggregate aggregate = aggregate();
@@ -79,8 +77,6 @@ class PersonServiceImplTest {
         assertThat(response.getEmail()).isEqualTo("ivan.petrov@example.org");
         assertThat(response.getFilled()).isTrue();
         assertThat(response.getAddress().getCountryAlpha3()).isEqualTo("RUS");
-
-        verify(auditRecorder).recordCreated(aggregate);
     }
 
     @Test
@@ -92,7 +88,7 @@ class PersonServiceImplTest {
         assertThatThrownBy(() -> service.createUser(request))
                 .isInstanceOf(EmailAlreadyExistsException.class);
 
-        verifyNoInteractions(assembler, auditRecorder);
+        verifyNoInteractions(assembler);
         verify(store, never()).insert(any());
     }
 
@@ -107,7 +103,7 @@ class PersonServiceImplTest {
                 .satisfies(error -> assertThat(((RequestValidationException) error).getErrors())
                         .containsKeys("email", "firstName", "lastName"));
 
-        verifyNoInteractions(store, assembler, auditRecorder);
+        verifyNoInteractions(store, assembler);
     }
 
     @Test
@@ -142,7 +138,7 @@ class PersonServiceImplTest {
     }
 
     @Test
-    @DisplayName("изменение: изменённый патч сохраняется и попадает в аудит")
+    @DisplayName("изменение: изменённый патч сохраняется")
     void appliesChangedPatch() {
         UserAggregate before = aggregate();
         UpdateUserRequest request = new UpdateUserRequest();
@@ -162,12 +158,10 @@ class PersonServiceImplTest {
 
         assertThat(response.getLastName()).isEqualTo("Петров-Старший");
         assertThat(response.getUpdatedAt()).isEqualTo(NOW);
-
-        verify(auditRecorder).recordUpdated(patch, after);
     }
 
     @Test
-    @DisplayName("изменение: пустой патч не пишется и не создаёт ревизию")
+    @DisplayName("изменение: пустой патч не пишется")
     void skipsNoOpPatch() {
         UserAggregate before = aggregate();
         UpdateUserRequest request = new UpdateUserRequest();
@@ -179,7 +173,6 @@ class PersonServiceImplTest {
         assertThat(service.updateUser(before.user().getId(), request).getLastName()).isEqualTo("Петров");
 
         verify(store, never()).update(any());
-        verifyNoInteractions(auditRecorder);
     }
 
     @Test
@@ -203,7 +196,6 @@ class PersonServiceImplTest {
                 .isInstanceOf(EmailAlreadyExistsException.class);
 
         verify(store, never()).update(any());
-        verifyNoInteractions(auditRecorder);
     }
 
     @Test
@@ -230,15 +222,27 @@ class PersonServiceImplTest {
     }
 
     @Test
-    @DisplayName("удаление: ревизия пишется до удаления строк, в той же транзакции")
-    void deletesAggregate() {
+    @DisplayName("хард-удаление: физическое удаление агрегата")
+    void hardDeletesAggregate() {
         UserAggregate aggregate = aggregate();
         when(store.loadById(aggregate.user().getId())).thenReturn(aggregate);
 
-        service.deleteUser(aggregate.user().getId());
+        service.deleteUser(aggregate.user().getId(), false);
 
-        verify(auditRecorder).recordDeleted(aggregate);
         verify(store).delete(aggregate);
+        assertThat(aggregate.user().getDeletedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("софт-удаление: строка не удаляется, проставляется deletedAt")
+    void softDeletesAggregate() {
+        UserAggregate aggregate = aggregate();
+        when(store.loadById(aggregate.user().getId())).thenReturn(aggregate);
+
+        service.deleteUser(aggregate.user().getId(), true);
+
+        assertThat(aggregate.user().getDeletedAt()).isEqualTo(NOW);
+        verify(store, never()).delete(any());
     }
 
     // ------------------------------------------------------------------
