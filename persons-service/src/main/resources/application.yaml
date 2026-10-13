@@ -6,6 +6,12 @@ spring:
   application:
     name: person-service
 
+  # В реактивном стеке MDC — это ThreadLocal, который не переносится между операторами Reactor.
+  # auto включает контекстную пропагацию (context-propagation уже на classpath): traceId/spanId
+  # снова попадают в JSON-логи, и их можно связать с трейсами в Tempo/Grafana.
+  reactor:
+    context-propagation: auto
+
   # Рабочий доступ к БД — реактивный (R2DBC, неблокирующий драйвер)
   r2dbc:
     url: r2dbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5434}/${POSTGRES_DB:person}
@@ -59,6 +65,13 @@ management:
       export:
         otlp:
           endpoint: ${OTLP_EXPORTER_ENDPOINT:http://localhost:4318/v1/traces}
+  otlp:
+    metrics:
+      export:
+        # Метрики отдаёт Prometheus; дублирующий OTLP-экспорт отключён,
+        # иначе Micrometer каждую минуту безуспешно шлёт их в localhost:4318
+        # и засоряет логи WARN-строками.
+        enabled: false
 
 info:
   app:

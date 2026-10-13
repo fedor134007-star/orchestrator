@@ -1,0 +1,52 @@
+@startuml C4_Container
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title person-service — контейнерная диаграмма
+
+Person(user, "Пользователь платформы", "Конечный пользователь: регистрация, вход, профиль")
+
+System_Boundary(platform, "Платёжная платформа (монорепозиторий курса)") {
+
+  Container(individualsApi, "individuals-api", "Spring Boot 4, WebFlux", "Оркестратор внешних сценариев: регистрация и логин, единственная точка интеграции с Keycloak")
+
+  Container(personService, "person-service", "Spring Boot 4, WebFlux + R2DBC", "Источник правды по пользовательским данным: агрегат users + addresses + individuals, аудит изменений, метрики и трассы. О Keycloak не знает")
+
+  ContainerDb(personDb, "person DB", "PostgreSQL 17, схема person", "Доменные таблицы (users, addresses, individuals, countries) и аудит (*_aud, revinfo)")
+
+  Container(nexus, "Nexus", "Sonatype Nexus 3", "Публикация клиентского артефакта person-service-client, прокси Maven Central, групповой адрес maven-public")
+}
+
+System_Ext(keycloak, "Keycloak", "Identity Server: OAuth2 / OIDC, Admin REST API")
+System_Ext(postman, "Postman / newman", "Клиент для проверки HTTP-контракта и прогона коллекции")
+
+System_Boundary(observability, "Наблюдаемость") {
+  Container(alloy, "Alloy", "Grafana Alloy", "Приём OTLP, пакетирование и пересылка телеметрии")
+  Container(prometheus, "Prometheus", "Prometheus", "Сбор метрик с /actuator/prometheus")
+  Container(tempo, "Tempo", "Grafana Tempo", "Хранилище распределённых трасс")
+  Container(grafana, "Grafana", "Grafana", "Дашборды по метрикам и трассам")
+}
+
+Rel(user, individualsApi, "Регистрация, вход, профиль", "HTTPS / JSON")
+Rel(postman, personService, "5 операций контракта и проверки ошибок", "HTTP / JSON")
+
+Rel(individualsApi, personService, "Создание и чтение агрегата через сгенерированный клиент", "REST, Spring HTTP Service Clients")
+Rel(individualsApi, keycloak, "Регистрация пользователя, выдача и обновление токенов", "OIDC, Admin REST")
+Rel(individualsApi, nexus, "Загрузка артефакта person-service-client", "Maven (maven-public)")
+
+Rel(personService, personDb, "Чтение и запись агрегата, записей аудита", "R2DBC, неблокирующий")
+Rel(personService, personDb, "Миграции при старте приложения", "Flyway по JDBC")
+Rel(personService, nexus, "Публикация person-service-client", "Gradle publish")
+
+Rel(personService, alloy, "Трейсы запросов", "OTLP/HTTP")
+Rel(prometheus, personService, "Сбор метрик", "HTTP scrape")
+Rel(alloy, tempo, "Трейсы", "OTLP")
+Rel(prometheus, grafana, "Метрики", "HTTP")
+Rel(tempo, grafana, "Трассы", "HTTP")
+
+note right of personService
+  Границы сервиса:
+  • не обращается к Keycloak — нет ни клиента Keycloak, ни OAuth2 resource server;
+  • не публикует события в Kafka (следующие модули);
+  • наружу отдаёт только HTTP-контракт и клиентский артефакт в Nexus.
+end note
+@enduml

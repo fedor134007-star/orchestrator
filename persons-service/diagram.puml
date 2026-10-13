@@ -1,0 +1,47 @@
+@startuml C4_Component
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title person-service — компоненты
+
+Container_Boundary(api, "HTTP-слой (сгенерирован из openapi/person-service.yaml)") {
+  Component(controller, "UsersApiController", "Spring @Controller", "Маршрутизация: связывает пути контракта с делегатом")
+  Component(delegate, "UsersApiDelegate", "Интерфейс", "Реактивные сигнатуры Mono<ResponseEntity<T>>, тело как Mono<Dto>")
+  Component(dto, "DTO контракта", "Java-классы", "CreateUserRequest, UpdateUserRequest, UserResponse, ProblemResponse")
+}
+
+Container_Boundary(app, "Прикладной слой") {
+  Component(delegateImpl, "UsersApiDelegateImpl", "Spring @Component", "HTTP-слой без бизнес-логики: вызывает сервис, собирает Location, отдаёт ResponseEntity")
+  Component(service, "PersonServiceImpl", "Spring @Service", "5 сценариев и транзакционная граница (@Transactional)")
+  Component(validator, "RequestValidator", "jakarta.validation", "Проверка тела по аннотациям контракта, trim email, карта ошибок по полям")
+  Component(assembler, "UserAggregateAssembler", "Spring @Component", "Политика агрегата: сборка из запроса, patch-семантика, полнота адреса, filled, вычисление изменений")
+  Component(country, "CountryResolver", "Spring @Component", "Справочник стран, согласованность alpha-2/alpha-3")
+  Component(mapper, "PersonDtoMapper", "Spring @Component", "entity → DTO и применение полей запроса к сущностям")
+  Component(store, "UserAggregateStore", "Spring Data R2DBC", "Чтение и запись агрегата поверх трёх таблиц, порядок операций из-за внешних ключей")
+  Component(auditRecorder, "AuditRecorder", "Spring @Component", "Одна ревизия на операцию: created / updated / deleted")
+  Component(auditWriter, "AuditWriter", "DatabaseClient", "SQL в *_aud и revinfo, вычисление флагов *_mod")
+  Component(advice, "ProblemDetailsAdvice", "Spring @RestControllerAdvice", "RFC 9457 для исключений внутри обработчика")
+  Component(errorHandler, "ProblemDetailsErrorWebExceptionHandler", "ErrorWebExceptionHandler", "RFC 9457 для ошибок вне обработчика (неизвестный путь)")
+  Component(flywayDs, "FlywayDataSourceConfiguration", "Spring @Configuration", "JDBC-источник данных только для Flyway")
+}
+
+ContainerDb(personDb, "person DB", "PostgreSQL 17", "users, addresses, individuals, countries, *_aud, revinfo")
+System_Ext(nexus, "Nexus", "Публикация клиентского артефакта person-service-client")
+
+Rel(controller, delegate, "передаёт вызов")
+Rel(delegate, dto, "использует")
+Rel(controller, delegateImpl, "находит делегата в контексте")
+Rel(delegateImpl, service, "вызывает сценарий")
+Rel(service, validator, "валидирует запрос")
+Rel(service, assembler, "собирает / патчит агрегат")
+Rel(service, store, "читает и пишет агрегат")
+Rel(service, auditRecorder, "пишет ревизию")
+Rel(assembler, country, "резолвит страну адреса")
+Rel(assembler, mapper, "применяет поля запроса")
+Rel(store, mapper, "отдаёт агрегат для отображения")
+Rel(auditRecorder, auditWriter, "передаёт данные ревизии")
+Rel(store, personDb, "R2DBC")
+Rel(auditWriter, personDb, "R2DBC")
+Rel(flywayDs, personDb, "Flyway по JDBC при старте")
+Rel(service, nexus, "публикует клиента (Gradle publish)")
+Rel(advice, dto, "формирует ProblemDetail")
+@enduml
