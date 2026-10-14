@@ -257,7 +257,10 @@ services:
       GF_METRICS_ENABLED: "true"
     volumes:
       - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning
-      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards
+      # Монтируем РОДИТЕЛЬСКИЙ каталог, а не саму папку дашбордов: git при смене ветки
+      # удаляет/пересоздаёт infrastructure/grafana/dashboards, и bind-mount на сам каталог
+      # «отвязывался» (контейнер видел пустую папку). /grafana всегда существует.
+      - ./infrastructure/grafana:/grafana
     healthcheck:
       test: [ "CMD", "wget", "--spider", "http://localhost:3000/api/health" ]
       interval: 10s
