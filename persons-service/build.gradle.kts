@@ -73,14 +73,15 @@ sourceSets.named("main") {
 dependencies {
     openApiGeneratorCli("org.openapitools:openapi-generator-cli:$openApiGeneratorVersion")
 
-    // WEB — реактивный стек
-    implementation("org.springframework.boot:spring-boot-starter-webflux")
+    // WEB — классический Servlet-стек (Spring MVC), без WebFlux
+    implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-validation")
 
-    // PERSISTENCE — R2DBC как рабочий доступ к БД
-    implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
-    implementation("io.r2dbc:r2dbc-pool")
-    implementation("org.postgresql:r2dbc-postgresql")
+    // PERSISTENCE — Spring Data JPA + Hibernate (блокирующий JDBC-доступ)
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    runtimeOnly("org.postgresql:postgresql")
+    // Аудит — Hibernate Envers (@Audited)
+    implementation("org.hibernate.orm:hibernate-envers")
 
     // Flyway по JDBC: миграции выполняются синхронно при старте, до подъёма HTTP-сервера
     implementation("org.springframework.boot:spring-boot-starter-flyway")
@@ -100,12 +101,11 @@ dependencies {
 
     // TEST
     testImplementation("org.springframework.boot:spring-boot-starter-test")
-    // В Boot 4 поддержка WebTestClient вынесена в отдельный модуль
-    testImplementation("org.springframework.boot:spring-boot-webtestclient")
+    // В Boot 4 поддержка MockMvc вынесена в отдельный модуль
+    testImplementation("org.springframework.boot:spring-boot-webmvc-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:testcontainers-postgresql")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
-    testImplementation("io.projectreactor:reactor-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -151,7 +151,7 @@ val generateServerApi by tasks.registering(JavaExec::class) {
         "-o", outDir,
         "--global-property", "apiDocs=false,modelDocs=false,apiTests=false,modelTests=false",
         "-p", "library=spring-boot," +
-                "reactive=true," +
+                "reactive=false," +
                 "annotationLibrary=none," +
                 "documentationProvider=none," +
                 "interfaceOnly=false," +

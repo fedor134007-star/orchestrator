@@ -1,4 +1,4 @@
-# person-service (модуль 2, WebFlux + R2DBC)
+# person-service (модуль 2, Spring MVC + JPA)
 
 Микросервис предметной области: хранит и изменяет агрегат пользователя —
 учётную запись (`users`), адрес (`addresses`) и индивидуальные данные (`individuals`).
@@ -9,9 +9,9 @@
 
 | Параметр | Значение |
 |---|---|
-| Стек | Java 25, Spring Boot 4.0.7, Spring Framework 7, **WebFlux** + **Spring Data R2DBC**, PostgreSQL 17 |
-| Миграции | Flyway по JDBC на старте приложения (рабочий путь запроса — неблокирующий R2DBC) |
-| Аудит | собственный реактивный writer (Hibernate Envers несовместим с R2DBC — см. ниже) |
+| Стек | Java 25, Spring Boot 4.0.7, Spring Framework 7, **Spring MVC** + **Spring Data JPA** (Hibernate), PostgreSQL 17 |
+| Миграции | Flyway по JDBC на старте приложения (рабочий путь запроса — JDBC через HikariCP) |
+| Аудит | Hibernate Envers (`@Audited(withModifiedFlag = true)`), таблицы `*_aud`/`revinfo` создаёт миграция V005 |
 | Порт | `8092` (в compose дополнительно опубликован алиас `8082`, чтобы команды из ТЗ работали как есть) |
 | Схема БД | `person` |
 | Артефакты | `person-service.jar` (OCI-образ) и `person-service-client` (библиотека для потребителей) |
@@ -24,7 +24,8 @@
 | Получение по идентификатору | `GET /api/v1/users/{id}` | `200 OK` |
 | Получение по email | `GET /api/v1/users/by-email?email=` | `200 OK` |
 | Изменение пользователя | `PATCH /api/v1/users/{id}` | `200 OK` |
-| Удаление пользователя | `DELETE /api/v1/users/{id}` | `204 No Content` |
+| Удаление пользователя | `DELETE /api/v1/users/{id}?mode=hard` | `204 No Content` |
+| Мягкое удаление (компенсация) | `DELETE /api/v1/users/{id}?mode=soft` | `204 No Content` |
 
 Контракт: [`openapi/person-service.yaml`](openapi/person-service.yaml). Схемы — `CreateUserRequest`,
 `UpdateUserRequest`, `UserResponse`, `AddressResponse`, `IndividualResponse`, `ProblemResponse`.
@@ -34,11 +35,13 @@
 * email уникален без учёта регистра — функциональный уникальный индекс `uk_users_email_lower`
   на уровне БД, а не только проверка в приложении;
 * создание, изменение и удаление атомарны на уровне всего агрегата: транзакционная граница
-  проходит по сервисному фасаду (`@Transactional` поверх реактивного менеджера транзакций);
+  проходит по сервисному фасаду (`@Transactional` поверх `JpaTransactionManager`);
 * `filled = true`, когда заполнены и адрес, и индивидуальные данные;
 * PATCH имеет patch-семантику: отсутствующее поле (в том числе во вложенном объекте)
   не изменяется; попытка создать неполный адрес отклоняется с `400`;
-* удаление физическое, история остаётся в аудитных таблицах.
+* удаление физическое (`mode=hard`, по умолчанию) или мягкое (`mode=soft`, компенсационное:
+  строка остаётся, исключается из чтений, email освобождается для повторной регистрации);
+  история остаётся в аудите Envers.
 
 ### Ошибки (RFC 9457)
 
@@ -58,13 +61,11 @@
 ресурс не найден, `409` — email занят, конкурентное изменение (`@Version`), нарушение уникального
 индекса, `500` — непредвиденная ошибка. Детализация валидации — в расширении `errors`.
 
-Ошибки обрабатываются в двух местах, потому что в WebFlux это разные пути:
-
-* `@RestControllerAdvice` (`ProblemDetailsAdvice`) — всё, что поднято внутри обработчика;
-* `ErrorWebExceptionHandler` (`ProblemDetailsErrorWebExceptionHandler`, `@Order(-2)`) — то, что
-  до advice не доходит, например запрос к несуществующему пути: `DispatcherHandler` поднимает
-  `ResponseStatusException(404)` вне обработчика. Без этого неизвестный путь отдавал бы
-  пустой ответ вместо problem+json.
+Ошибки обрабатывает один `@RestControllerAdvice` (`ProblemDetailsAdvice`): он перехватывает и
+бизнес-исключения, и исключения фреймворка (валидация тела/параметров, битый JSON, неверный
+UUID в пути). Запрос к несуществующему маршруту приводит к `NoHandlerFoundException`
+(`spring.mvc.throw-exception-if-no-handler-found=true` + `spring.web.resources.add-mappings=false`)
+и отдаёт тот же `problem+json` со статусом `404`.
 
 ## Слои сервиса
 
@@ -74,8 +75,7 @@
 |---|---|
 | [`PersonServiceImpl`](src/main/java/com/example/persons_service/service/PersonServiceImpl.java) | сценарии (create/read/update/delete) и транзакционная граница; политики не содержит |
 | [`UserAggregateAssembler`](src/main/java/com/example/persons_service/service/UserAggregateAssembler.java) | сборка агрегата из запроса, patch-семантика, полнота адреса, пересчёт `filled`, определение того, что реально изменилось |
-| [`UserAggregateStore`](src/main/java/com/example/persons_service/repository/UserAggregateStore.java) | чтение и запись агрегата поверх трёх R2DBC-таблиц, порядок операций из-за внешних ключей, «может отсутствовать» для вложенных сущностей |
-| [`AuditRecorder`](src/main/java/com/example/persons_service/audit/AuditRecorder.java) | одна ревизия на операцию; сценарии не знают про три аудитные таблицы |
+| [`UserAggregateStore`](src/main/java/com/example/persons_service/repository/UserAggregateStore.java) | чтение и запись агрегата поверх трёх JPA-таблиц, порядок операций из-за внешних ключей, «может отсутствовать» для вложенных сущностей |
 | [`CountryResolver`](src/main/java/com/example/persons_service/service/CountryResolver.java) | справочник стран, согласованность alpha-2/alpha-3, обязательность кода |
 | [`RequestValidator`](src/main/java/com/example/persons_service/service/RequestValidator.java) | валидация тела по аннотациям контракта и нормализация email |
 
@@ -92,10 +92,11 @@ Flyway-миграции: [`src/main/resources/db/migration`](src/main/resources/
 | `V002` | таблицы `countries`, `addresses`, `users`, `individuals` |
 | `V003` | `uk_users_email_lower`, индексы внешних ключей |
 | `V004` | справочник стран (ISO 3166-1) |
-| `V005` | аудитные таблицы (`*_aud`, `revinfo`) |
-| `V006` | шаг последовательности ревизий = 1 и подтягивание её к существующим ревизиям |
+| `V005` | аудитные таблицы Envers (`*_aud`, `revinfo`, `revinfo_seq` с шагом 50) |
+| `V006` | мягкое удаление (`users.deleted_at`) |
+| `V007` | частичный уникальный индекс email — только активные пользователи |
 
-`ddl-auto` отсутствует: схему создают только миграции, R2DBC-сущности её не меняют.
+Схему создают только миграции: `spring.jpa.hibernate.ddl-auto=none`.
 
 Отличия от рекомендованного в ТЗ фрагмента (осознанные):
 
@@ -104,38 +105,32 @@ Flyway-миграции: [`src/main/resources/db/migration`](src/main/resources/
 * `users.address_id` объявлен `UNIQUE`: связь «пользователь — адрес» действительно один-к-одному;
 * добавлены `CHECK (status IN ('NEW','VERIFIED','ARCHIVED'))` и индексы на `id` в аудитных таблицах.
 
-### Доступ к БД: R2DBC + отдельный JDBC-DataSource для Flyway
+### Доступ к БД: Spring Data JPA + HikariCP
 
-* рабочие запросы идут через R2DBC (`spring.r2dbc.*`), пул — `r2dbc-pool`;
-* схема указывается явно в маппинге (`@Table(value = "users", schema = "person")`) и в SQL,
+* рабочие запросы идут через JPA/Hibernate по JDBC; пул — HikariCP;
+* схема указывается явно в маппинге (`@Table(name = "users", schema = "person")`) и в SQL,
   поэтому никакой `search_path` не нужен;
-* **Spring Boot намеренно не создаёт JDBC `DataSource`, если в контексте есть реактивный
-  `ConnectionFactory`** (защита от смешивания блокирующего и неблокирующего доступа).
-  Flyway нужен JDBC, поэтому источник данных объявлен явно —
-  [`FlywayDataSourceConfiguration`](src/main/java/com/example/persons_service/config/FlywayDataSourceConfiguration.java);
-* вместе с ним Boot поднимает и JDBC-менеджер транзакций, из-за чего `@Transactional` не мог
-  выбрать между двумя менеджерами, поэтому автоконфигурация
-  `DataSourceTransactionManagerAutoConfiguration` исключена: в контексте остаётся ровно один
-  менеджер — реактивный.
+* значения конфигурации вынесены из `application.yaml` в
+  [`person-service.properties`](src/main/resources/person-service.properties), типизация и валидация —
+  [`PersonServiceProperties`](src/main/java/com/example/persons_service/config/PersonServiceProperties.java);
+* пул собирается в [`DataSourceConfiguration`](src/main/java/com/example/persons_service/config/DataSourceConfiguration.java)
+  из этих значений: `initial-size=5`, `max-size=20`, `max-idle-time=30m` (Hikari `idle-timeout` — `long`,
+  поэтому читаемое `30m` преобразуется в миллисекунды здесь, а не в `spring.datasource.hikari.*`).
 
-### Аудит
+### Аудит (Hibernate Envers)
 
-Hibernate Envers — часть Hibernate ORM, то есть блокирующего JPA, и с R2DBC работать не может.
-Аудит реализован собственным реактивным writer'ом
-([`AuditWriter`](src/main/java/com/example/persons_service/audit/AuditWriter.java)),
-но **схема и семантика сохранены такими же, как были у Envers**, поэтому история читается
-теми же запросами:
+Аудит пишет Hibernate Envers автоматически: сущности `UserEntity`, `AddressEntity`,
+`IndividualEntity` помечены `@Audited(withModifiedFlag = true)`, номер и метка времени ревизии —
+[`AuditRevisionEntity`](src/main/java/com/example/persons_service/audit/AuditRevisionEntity.java)
+(`@RevisionEntity`). Ручного кода аудита в сервисе нет.
 
 * одна ревизия на одну транзакцию изменения агрегата: `revinfo` + `person.revinfo_seq`;
-* `revtype`: `0` — создание, `1` — изменение, `2` — удаление;
+* `revtype`: `0` — создание, `1` — изменение (включая мягкое удаление), `2` — удаление;
 * колонки `<свойство>_mod` показывают, какие поля изменились
-  (`last_name_mod`, `email_mod`, `filled_mod`, `address_mod`, `individual_mod`, …);
-* при удалении пишется полный снимок состояния — аналог `store_data_at_delete`;
+  (`last_name_mod`, `email_mod`, `filled_mod`, `address_id_mod`, `deleted_at_mod`, …);
+* при удалении пишется полный снимок состояния (`org.hibernate.envers.store_data_at_delete=true`);
 * записи аудита идут в той же транзакции, что и данные, поэтому история не может разойтись
   с фактическим состоянием.
-
-Смысловое отличие: `users_aud.individual_mod` поднимается, когда в этой ревизии изменились
-индивидуальные данные (у Envers флаг относился к обратной связи, колонки для неё в таблице нет).
 
 Проверить историю:
 
@@ -149,9 +144,9 @@ select rev, revtype, last_name, last_name_mod, email_mod from person.users_aud o
 на 7.14.0 и не умеет `useSpringBoot4`. Результат — в `build/generated/openapi/{server,client}`
 (в `src` сгенерированного кода нет).
 
-* сервер: `spring-boot` + `reactive=true` + `interfaceOnly=false` + `delegatePattern=true`
+* сервер: `spring-boot` + `reactive=false` + `interfaceOnly=false` + `delegatePattern=true`
   + `useSpringBoot4=true` → `UsersApiController` (маршрутизация) и `UsersApiDelegate`
-  с реактивными сигнатурами `Mono<ResponseEntity<T>>`; тело приходит как `Mono<Dto>`;
+  с синхронными сигнатурами `ResponseEntity<T>`;
 * клиент: `spring-http-interface` → `@HttpExchange`-интерфейс `UsersApi` для потребителей.
   **OpenFeign не используется**;
 * `annotationLibrary=none` + `documentationProvider=none`: swagger-аннотации не генерируются,
@@ -159,9 +154,9 @@ select rev, revtype, last_name, last_name_mod, email_mod from person.users_aud o
 * сгенерированный `UsersApiController` лежит в пакете `net.example.person.api`, поэтому
   сканирование компонентов приложения явно расширено: без этого маршруты не регистрируются.
 
-Валидация тела выполняется **явно в сервисном слое** (`jakarta.validation.Validator`): в WebFlux
-параметр имеет тип `Mono<Dto>`, и полагаться на автоматическую проверку тела нельзя — иначе
-поведение зависело бы от стека. Перед проверкой email обрезается от пробелов.
+Валидация тела выполняется и MVC (`@Valid @RequestBody` → `MethodArgumentNotValidException`),
+и явно в сервисном слое (`jakarta.validation.Validator`) — перед проверкой email обрезается
+от пробелов, а ошибки отдаются в едином виде `400` с детализацией по полям.
 
 ## Публикация клиента в Nexus
 
@@ -185,9 +180,8 @@ cd persons-service && ./gradlew publish
 * JSON-логи ([`logback-spring.xml`](src/main/resources/logback-spring.xml)) с `traceId`, `spanId`,
   `service.name`: журнал, метрика и трасса сопоставляются по одному запросу.
   Профиль `plain` переключает вывод на человекочитаемый формат;
-* `traceId`/`spanId` попадают в логи благодаря `spring.reactor.context-propagation=auto`:
-  в реактивном стеке MDC не переносится между операторами Reactor, без этой настройки
-  корреляция логов с трейсами не работала.
+* `traceId`/`spanId` попадают в логи автоматически: в Servlet-стеке MDC привязан к потоку запроса,
+  и Micrometer Tracing кладёт в него текущий трейс.
 
 Путь логов в Grafana: контейнер пишет JSON в stdout → Alloy (config.alloy) разбирает его
 `stage.json` и поднимает в labels `level`, `logger`, `trace_id`, `span_id`, а строкой лога
@@ -199,9 +193,8 @@ cd persons-service && ./gradlew publish
 (`management.otlp.metrics.export.enabled=false`), иначе Micrometer каждую минуту безуспешно
 шлёт их в `localhost:4318` внутри контейнера и засоряет логи WARN-строками.
 
-Особенность реактивного стека: `userId` не кладётся в MDC — в WebFlux нет потока, привязанного
-к запросу, и MDC не переносится между операторами без отдельной контекстной пропагации.
-Идентификатор пишется прямо в сообщения логов (`Создан пользователь id=…`, `Обновлён пользователь id=…`).
+`userId` в MDC не кладётся: идентификатор пишется прямо в сообщения логов
+(`Создан пользователь id=…`, `Обновлён пользователь id=…`).
 
 ## Запуск
 
@@ -239,19 +232,19 @@ curl http://localhost:8082/actuator/prometheus
 ## Тесты
 
 ```bash
-cd persons-service && ./gradlew test        # 51 тест
+cd persons-service && ./gradlew test        # unit + интеграционные
 cd persons-service && ./gradlew check       # + проверка покрытия (порог 80% по строкам)
 ```
 
-* unit: бизнес-правила сервиса (StepVerifier + моки репозиториев и аудита), patch-семантика,
-  маппинг DTO, слой ошибок RFC 9457;
-* интеграционные на Testcontainers (`postgres:17`) с `WebTestClient`: миграции Flyway, CRUD
-  агрегата, каскадное удаление, конкурентное создание одного email (проверяется, что проигравшая
-  транзакция не оставляет осиротевший адрес), ревизии аудита с флагами изменённых полей и снимком
-  при удалении, `/actuator/health` и `/actuator/prometheus`.
+* unit: бизнес-правила сервиса (JUnit 5 + Mockito), patch-семантика, маппинг DTO,
+  слой ошибок RFC 9457, ревизии аудита;
+* интеграционные на Testcontainers (`postgres:17`) через MockMvc (полный MVC-стек): миграции
+  Flyway, CRUD агрегата, каскадное удаление, конкурентное создание одного email (проверяется,
+  что проигравшая транзакция не оставляет осиротевший адрес), ревизии аудита с флагами
+  изменённых полей и снимком при удалении, `/actuator/health` и `/actuator/prometheus`.
 
-Покрытие строк — 90.0%; сгенерированный код (`net.example.person.api`, `net.example.person.client`,
-`net.example.person.dto`) из измерения исключён: он не пишется руками.
+Сгенерированный код (`net.example.person.api`, `net.example.person.client`,
+`net.example.person.dto`) из измерения покрытия исключён: он не пишется руками.
 
 ## Известные ограничения
 

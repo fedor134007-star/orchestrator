@@ -23,15 +23,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import reactor.core.publisher.Mono;
-import reactor.test.StepVerifier;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -62,44 +62,40 @@ class UserAggregateAssemblerTest {
     @Test
     @DisplayName("создание с адресом и индивидуальными данными: filled=true, связи выставлены")
     void assemblesNewAggregate() {
-        when(countryRepository.findByAlpha3IgnoreCase("RUS")).thenReturn(Mono.just(country()));
+        when(countryRepository.findByAlpha3IgnoreCase("RUS")).thenReturn(Optional.of(country()));
 
-        StepVerifier.create(assembler.forCreate(createRequest(true, true)))
-                .assertNext(aggregate -> {
-                    UserEntity user = aggregate.user();
-                    assertThat(user.getEmail()).isEqualTo("ivan.petrov@example.org");
-                    assertThat(user.getFirstName()).isEqualTo("Иван");
-                    assertThat(user.getLastName()).isEqualTo("Петров");
-                    assertThat(user.getCreated()).isEqualTo(NOW);
-                    assertThat(user.getUpdated()).isEqualTo(NOW);
-                    assertThat(user.isFilled()).isTrue();
-                    assertThat(user.getAddressId()).isEqualTo(aggregate.address().getId());
+        UserAggregate aggregate = assembler.forCreate(createRequest(true, true));
 
-                    assertThat(aggregate.address().getCountryId()).isEqualTo(1);
-                    assertThat(aggregate.address().getCity()).isEqualTo("Moscow");
-                    assertThat(aggregate.address().getAddress()).isEqualTo("ул. Пример, д. 1");
-                    assertThat(aggregate.address().getCreated()).isEqualTo(NOW);
+        UserEntity user = aggregate.user();
+        assertThat(user.getEmail()).isEqualTo("ivan.petrov@example.org");
+        assertThat(user.getFirstName()).isEqualTo("Иван");
+        assertThat(user.getLastName()).isEqualTo("Петров");
+        assertThat(user.getCreated()).isEqualTo(NOW);
+        assertThat(user.getUpdated()).isEqualTo(NOW);
+        assertThat(user.isFilled()).isTrue();
+        assertThat(user.getAddressId()).isEqualTo(aggregate.address().getId());
 
-                    assertThat(aggregate.individual().getUserId()).isEqualTo(user.getId());
-                    assertThat(aggregate.individual().getStatus()).isEqualTo(IndividualStatus.NEW);
-                    assertThat(aggregate.individual().getPhoneNumber()).isEqualTo("+79991234567");
+        assertThat(aggregate.address().getCountryId()).isEqualTo(1);
+        assertThat(aggregate.address().getCity()).isEqualTo("Moscow");
+        assertThat(aggregate.address().getAddress()).isEqualTo("ул. Пример, д. 1");
+        assertThat(aggregate.address().getCreated()).isEqualTo(NOW);
 
-                    assertThat(aggregate.country().getAlpha3()).isEqualTo("RUS");
-                })
-                .verifyComplete();
+        assertThat(aggregate.individual().getUserId()).isEqualTo(user.getId());
+        assertThat(aggregate.individual().getStatus()).isEqualTo(IndividualStatus.NEW);
+        assertThat(aggregate.individual().getPhoneNumber()).isEqualTo("+79991234567");
+
+        assertThat(aggregate.country().getAlpha3()).isEqualTo("RUS");
     }
 
     @Test
     @DisplayName("создание без адреса: filled=false и справочник не опрашивается")
     void assemblesAggregateWithoutAddress() {
-        StepVerifier.create(assembler.forCreate(createRequest(false, true)))
-                .assertNext(aggregate -> {
-                    assertThat(aggregate.address()).isNull();
-                    assertThat(aggregate.country()).isNull();
-                    assertThat(aggregate.user().isFilled()).isFalse();
-                    assertThat(aggregate.user().getAddressId()).isNull();
-                })
-                .verifyComplete();
+        UserAggregate aggregate = assembler.forCreate(createRequest(false, true));
+
+        assertThat(aggregate.address()).isNull();
+        assertThat(aggregate.country()).isNull();
+        assertThat(aggregate.user().isFilled()).isFalse();
+        assertThat(aggregate.user().getAddressId()).isNull();
 
         verifyNoInteractions(countryRepository);
     }
@@ -107,18 +103,15 @@ class UserAggregateAssemblerTest {
     @Test
     @DisplayName("создание: неизвестная страна отклоняется")
     void rejectsUnknownCountry() {
-        when(countryRepository.findByAlpha3IgnoreCase("ZZZ")).thenReturn(Mono.empty());
+        when(countryRepository.findByAlpha3IgnoreCase("ZZZ")).thenReturn(Optional.empty());
 
         CreateUserRequest request = createRequest(true, false);
         request.getAddress().setCountryAlpha3("ZZZ");
         request.getAddress().setCountryAlpha2("ZZ");
 
-        StepVerifier.create(assembler.forCreate(request))
-                .expectErrorSatisfies(error -> {
-                    assertThat(error).isInstanceOf(UnknownCountryException.class);
-                    assertThat(error).hasMessageContaining("ZZZ");
-                })
-                .verify();
+        assertThatThrownBy(() -> assembler.forCreate(request))
+                .isInstanceOf(UnknownCountryException.class)
+                .hasMessageContaining("ZZZ");
     }
 
     @Test
@@ -128,25 +121,21 @@ class UserAggregateAssemblerTest {
         request.getAddress().setCountryAlpha3(null);
         request.getAddress().setCountryAlpha2(null);
 
-        StepVerifier.create(assembler.forCreate(request))
-                .expectError(IncompleteAggregateUpdateException.class)
-                .verify();
+        assertThatThrownBy(() -> assembler.forCreate(request))
+                .isInstanceOf(IncompleteAggregateUpdateException.class);
     }
 
     @Test
     @DisplayName("создание: коды alpha-2 и alpha-3 должны быть согласованы")
     void rejectsMismatchedCountryCodes() {
-        when(countryRepository.findByAlpha3IgnoreCase("RUS")).thenReturn(Mono.just(country()));
+        when(countryRepository.findByAlpha3IgnoreCase("RUS")).thenReturn(Optional.of(country()));
 
         CreateUserRequest request = createRequest(true, false);
         request.getAddress().setCountryAlpha2("DE");
 
-        StepVerifier.create(assembler.forCreate(request))
-                .expectErrorSatisfies(error -> {
-                    assertThat(error).isInstanceOf(UnknownCountryException.class);
-                    assertThat(error).hasMessageContaining("противоречат");
-                })
-                .verify();
+        assertThatThrownBy(() -> assembler.forCreate(request))
+                .isInstanceOf(UnknownCountryException.class)
+                .hasMessageContaining("противоречат");
     }
 
     // ------------------------------------------------------------------
@@ -167,22 +156,20 @@ class UserAggregateAssemblerTest {
         individualRequest.setPhoneNumber("+79990000000");
         request.setIndividual(individualRequest);
 
-        StepVerifier.create(assembler.forUpdate(before, request))
-                .assertNext(patch -> {
-                    assertThat(patch.changed()).isTrue();
-                    assertThat(patch.after().user().getLastName()).isEqualTo("Петров-Старший");
-                    assertThat(patch.after().user().getUpdated()).isEqualTo(NOW);
-                    assertThat(patch.after().address().getCity()).isEqualTo("Saint Petersburg");
-                    assertThat(patch.after().address().getAddress()).isEqualTo("ул. Пример, д. 1");
-                    assertThat(patch.after().individual().getPhoneNumber()).isEqualTo("+79990000000");
-                    assertThat(patch.after().individual().getPassportNumber()).isEqualTo("1234 567890");
+        AggregatePatch patch = assembler.forUpdate(before, request);
 
-                    assertThat(patch.address().touched()).isTrue();
-                    assertThat(patch.address().created()).isFalse();
-                    assertThat(patch.individual().touched()).isTrue();
-                    assertThat(patch.individual().created()).isFalse();
-                })
-                .verifyComplete();
+        assertThat(patch.changed()).isTrue();
+        assertThat(patch.after().user().getLastName()).isEqualTo("Петров-Старший");
+        assertThat(patch.after().user().getUpdated()).isEqualTo(NOW);
+        assertThat(patch.after().address().getCity()).isEqualTo("Saint Petersburg");
+        assertThat(patch.after().address().getAddress()).isEqualTo("ул. Пример, д. 1");
+        assertThat(patch.after().individual().getPhoneNumber()).isEqualTo("+79990000000");
+        assertThat(patch.after().individual().getPassportNumber()).isEqualTo("1234 567890");
+
+        assertThat(patch.address().touched()).isTrue();
+        assertThat(patch.address().created()).isFalse();
+        assertThat(patch.individual().touched()).isTrue();
+        assertThat(patch.individual().created()).isFalse();
 
         // исходный агрегат не мутирован: его состояние нужно и для аудита, и для сравнения
         assertThat(before.user().getLastName()).isEqualTo("Петров");
@@ -193,7 +180,7 @@ class UserAggregateAssemblerTest {
     @DisplayName("PATCH создаёт отсутствующие адрес и индивидуальные данные")
     void createsMissingNestedEntities() {
         UserAggregate before = aggregateWithoutNestedEntities();
-        when(countryRepository.findByAlpha3IgnoreCase("RUS")).thenReturn(Mono.just(country()));
+        when(countryRepository.findByAlpha3IgnoreCase("RUS")).thenReturn(Optional.of(country()));
 
         UpdateUserRequest request = new UpdateUserRequest();
         UpdateAddressRequest addressRequest = new UpdateAddressRequest();
@@ -206,18 +193,16 @@ class UserAggregateAssemblerTest {
         individualRequest.setPhoneNumber("+79991112233");
         request.setIndividual(individualRequest);
 
-        StepVerifier.create(assembler.forUpdate(before, request))
-                .assertNext(patch -> {
-                    assertThat(patch.changed()).isTrue();
-                    assertThat(patch.address().created()).isTrue();
-                    assertThat(patch.address().touched()).isTrue();
-                    assertThat(patch.individual().created()).isTrue();
-                    assertThat(patch.after().address().getCountryId()).isEqualTo(1);
-                    assertThat(patch.after().user().getAddressId()).isEqualTo(patch.after().address().getId());
-                    assertThat(patch.after().individual().getUserId()).isEqualTo(before.user().getId());
-                    assertThat(patch.after().user().isFilled()).isTrue();
-                })
-                .verifyComplete();
+        AggregatePatch patch = assembler.forUpdate(before, request);
+
+        assertThat(patch.changed()).isTrue();
+        assertThat(patch.address().created()).isTrue();
+        assertThat(patch.address().touched()).isTrue();
+        assertThat(patch.individual().created()).isTrue();
+        assertThat(patch.after().address().getCountryId()).isEqualTo(1);
+        assertThat(patch.after().user().getAddressId()).isEqualTo(patch.after().address().getId());
+        assertThat(patch.after().individual().getUserId()).isEqualTo(before.user().getId());
+        assertThat(patch.after().user().isFilled()).isTrue();
     }
 
     @Test
@@ -230,9 +215,8 @@ class UserAggregateAssemblerTest {
         addressRequest.setCity("Moscow");
         request.setAddress(addressRequest);
 
-        StepVerifier.create(assembler.forUpdate(before, request))
-                .expectError(IncompleteAggregateUpdateException.class)
-                .verify();
+        assertThatThrownBy(() -> assembler.forUpdate(before, request))
+                .isInstanceOf(IncompleteAggregateUpdateException.class);
     }
 
     @Test
@@ -240,14 +224,12 @@ class UserAggregateAssemblerTest {
     void treatsEmptyPatchAsNoChange() {
         UserAggregate before = fullAggregate();
 
-        StepVerifier.create(assembler.forUpdate(before, new UpdateUserRequest()))
-                .assertNext(patch -> {
-                    assertThat(patch.changed()).isFalse();
-                    assertThat(patch.after()).isSameAs(before);
-                    assertThat(patch.address()).isNull();
-                    assertThat(patch.individual()).isNull();
-                })
-                .verifyComplete();
+        AggregatePatch patch = assembler.forUpdate(before, new UpdateUserRequest());
+
+        assertThat(patch.changed()).isFalse();
+        assertThat(patch.after()).isSameAs(before);
+        assertThat(patch.address()).isNull();
+        assertThat(patch.individual()).isNull();
     }
 
     @Test
@@ -261,9 +243,7 @@ class UserAggregateAssemblerTest {
         addressRequest.setCity("Moscow");
         request.setAddress(addressRequest);
 
-        StepVerifier.create(assembler.forUpdate(before, request))
-                .assertNext(patch -> assertThat(patch.changed()).isFalse())
-                .verifyComplete();
+        assertThat(assembler.forUpdate(before, request).changed()).isFalse();
     }
 
     @Test
@@ -274,7 +254,7 @@ class UserAggregateAssemblerTest {
         germany.setId(2);
         germany.setAlpha3("DEU");
         germany.setAlpha2("DE");
-        when(countryRepository.findByAlpha3IgnoreCase("DEU")).thenReturn(Mono.just(germany));
+        when(countryRepository.findByAlpha3IgnoreCase("DEU")).thenReturn(Optional.of(germany));
 
         UpdateUserRequest request = new UpdateUserRequest();
         UpdateAddressRequest addressRequest = new UpdateAddressRequest();
@@ -282,14 +262,12 @@ class UserAggregateAssemblerTest {
         addressRequest.setCountryAlpha2("DE");
         request.setAddress(addressRequest);
 
-        StepVerifier.create(assembler.forUpdate(before, request))
-                .assertNext(patch -> {
-                    assertThat(patch.changed()).isTrue();
-                    assertThat(patch.address().touched()).isTrue();
-                    assertThat(patch.after().address().getCountryId()).isEqualTo(2);
-                    assertThat(patch.after().country().getAlpha3()).isEqualTo("DEU");
-                })
-                .verifyComplete();
+        AggregatePatch patch = assembler.forUpdate(before, request);
+
+        assertThat(patch.changed()).isTrue();
+        assertThat(patch.address().touched()).isTrue();
+        assertThat(patch.after().address().getCountryId()).isEqualTo(2);
+        assertThat(patch.after().country().getAlpha3()).isEqualTo("DEU");
     }
 
     // ------------------------------------------------------------------

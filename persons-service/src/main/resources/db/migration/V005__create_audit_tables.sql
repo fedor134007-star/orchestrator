@@ -1,15 +1,15 @@
 -- Аудитные таблицы Hibernate Envers.
 --
--- DDL снят с фактической генерации Hibernate 7.2.19 (ddl-auto=create) на временной БД
--- и перенесён в Flyway: Hibernate в режиме validate сверяет аудитные таблицы так же
--- строго, как доменные, поэтому имена и типы колонок должны совпадать.
+-- Схема отражает фактическую модель сущностей (плоские FK-колонки address_id/user_id,
+-- а не связи-объекты). Имена колонок *_mod генерируются из @Audited(withModifiedFlag = true):
+-- флаг для поля addressId называется address_id_mod и т.д.
 --
--- Особенности, которые важно не потерять при ручном написании миграции:
+-- Особенности:
 --   * поле @Version в аудит не попадает — колонки version в *_aud нет;
 --   * @Audited(withModifiedFlag = true) добавляет по колонке <свойство>_mod на каждое
---     аудируемое свойство, включая связи (address_mod, individual_mod, user_mod);
---   * ревизии нумеруются последовательностью с шагом 50 — это allocationSize Hibernate;
---     последовательность с шагом 1 привела бы к конфликту номеров ревизий.
+--     аудируемое свойство;
+--   * ревизии нумеруются последовательностью с шагом 50 — это allocationSize Hibernate
+--     (см. RevisionEntity), последовательность с шагом 1 привела бы к конфликту номеров.
 
 CREATE SEQUENCE person.revinfo_seq
     START WITH 1
@@ -27,42 +27,52 @@ CREATE TABLE person.revinfo
 
 CREATE TABLE person.users_aud
 (
-    rev            INTEGER NOT NULL,
-    revtype        SMALLINT,
-    id             UUID    NOT NULL,
-    secret_key     VARCHAR(64),
-    email          VARCHAR(1024),
-    created        TIMESTAMP WITH TIME ZONE,
-    updated        TIMESTAMP WITH TIME ZONE,
-    first_name     VARCHAR(64),
-    last_name      VARCHAR(64),
-    filled         BOOLEAN,
-    address_id     UUID,
-    secret_key_mod BOOLEAN,
-    email_mod      BOOLEAN,
-    created_mod    BOOLEAN,
-    updated_mod    BOOLEAN,
-    first_name_mod BOOLEAN,
-    last_name_mod  BOOLEAN,
-    filled_mod     BOOLEAN,
-    address_mod    BOOLEAN,
-    individual_mod BOOLEAN,
+    rev             INTEGER NOT NULL,
+    revtype         SMALLINT,
+    id              UUID    NOT NULL,
+    secret_key      VARCHAR(64),
+    email           VARCHAR(1024),
+    created         TIMESTAMP WITH TIME ZONE,
+    updated         TIMESTAMP WITH TIME ZONE,
+    first_name      VARCHAR(64),
+    last_name       VARCHAR(64),
+    filled          BOOLEAN,
+    address_id      UUID,
+    deleted_at      TIMESTAMP WITH TIME ZONE,
+    secret_key_mod  BOOLEAN,
+    email_mod       BOOLEAN,
+    created_mod     BOOLEAN,
+    updated_mod     BOOLEAN,
+    first_name_mod  BOOLEAN,
+    last_name_mod   BOOLEAN,
+    filled_mod      BOOLEAN,
+    address_id_mod  BOOLEAN,
+    deleted_at_mod  BOOLEAN,
     CONSTRAINT users_aud_pkey PRIMARY KEY (rev, id),
     CONSTRAINT fk_users_aud_revinfo FOREIGN KEY (rev) REFERENCES person.revinfo (rev)
 );
 
 CREATE TABLE person.addresses_aud
 (
-    rev      INTEGER NOT NULL,
-    revtype  SMALLINT,
-    id       UUID    NOT NULL,
-    created  TIMESTAMP WITH TIME ZONE,
-    updated  TIMESTAMP WITH TIME ZONE,
-    address  VARCHAR(128),
-    zip_code VARCHAR(32),
-    archived TIMESTAMP WITH TIME ZONE,
-    city     VARCHAR(64),
-    state    VARCHAR(64),
+    rev            INTEGER NOT NULL,
+    revtype        SMALLINT,
+    id             UUID    NOT NULL,
+    created        TIMESTAMP WITH TIME ZONE,
+    updated        TIMESTAMP WITH TIME ZONE,
+    country_id     INTEGER,
+    address        VARCHAR(128),
+    zip_code       VARCHAR(32),
+    archived       TIMESTAMP WITH TIME ZONE,
+    city           VARCHAR(64),
+    state          VARCHAR(64),
+    created_mod    BOOLEAN,
+    updated_mod    BOOLEAN,
+    country_id_mod BOOLEAN,
+    address_mod    BOOLEAN,
+    zip_code_mod   BOOLEAN,
+    archived_mod   BOOLEAN,
+    city_mod       BOOLEAN,
+    state_mod      BOOLEAN,
     CONSTRAINT addresses_aud_pkey PRIMARY KEY (rev, id),
     CONSTRAINT fk_addresses_aud_revinfo FOREIGN KEY (rev) REFERENCES person.revinfo (rev)
 );
@@ -78,12 +88,12 @@ CREATE TABLE person.individuals_aud
     verified_at         TIMESTAMP WITH TIME ZONE,
     archived_at         TIMESTAMP WITH TIME ZONE,
     status              VARCHAR(32),
+    user_id_mod         BOOLEAN,
     passport_number_mod BOOLEAN,
     phone_number_mod    BOOLEAN,
     verified_at_mod     BOOLEAN,
     archived_at_mod     BOOLEAN,
     status_mod          BOOLEAN,
-    user_mod            BOOLEAN,
     CONSTRAINT individuals_aud_pkey PRIMARY KEY (rev, id),
     CONSTRAINT fk_individuals_aud_revinfo FOREIGN KEY (rev) REFERENCES person.revinfo (rev),
     CONSTRAINT ck_individuals_aud_status CHECK (status IS NULL OR status IN ('NEW', 'VERIFIED', 'ARCHIVED'))

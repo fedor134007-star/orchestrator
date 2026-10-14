@@ -7,9 +7,9 @@ import net.example.person.dto.CreateUserRequest;
 import net.example.person.dto.UpdateUserRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("RequestValidator: проверка тела запроса и нормализация email")
 class RequestValidatorTest {
@@ -22,9 +22,9 @@ class RequestValidatorTest {
     void acceptsValidCreateRequest() {
         CreateUserRequest request = validCreateRequest();
 
-        StepVerifier.create(validator.validateCreate(request))
-                .assertNext(valid -> assertThat(valid).isSameAs(request))
-                .verifyComplete();
+        CreateUserRequest valid = validator.validateCreate(request);
+
+        assertThat(valid).isSameAs(request);
     }
 
     @Test
@@ -34,13 +34,10 @@ class RequestValidatorTest {
         request.setEmail("not-an-email");
         request.setFirstName("");
 
-        StepVerifier.create(validator.validateCreate(request))
-                .expectErrorSatisfies(error -> {
-                    assertThat(error).isInstanceOf(RequestValidationException.class);
-                    assertThat(((RequestValidationException) error).getErrors())
-                            .containsKeys("email", "firstName", "lastName");
-                })
-                .verify();
+        assertThatThrownBy(() -> validator.validateCreate(request))
+                .isInstanceOf(RequestValidationException.class)
+                .satisfies(error -> assertThat(((RequestValidationException) error).getErrors())
+                        .containsKeys("email", "firstName", "lastName"));
     }
 
     @Test
@@ -49,9 +46,9 @@ class RequestValidatorTest {
         CreateUserRequest request = validCreateRequest();
         request.setEmail("  ivan.petrov@example.org  ");
 
-        StepVerifier.create(validator.validateCreate(request))
-                .assertNext(valid -> assertThat(valid.getEmail()).isEqualTo("ivan.petrov@example.org"))
-                .verifyComplete();
+        CreateUserRequest valid = validator.validateCreate(request);
+
+        assertThat(valid.getEmail()).isEqualTo("ivan.petrov@example.org");
     }
 
     @Test
@@ -60,9 +57,9 @@ class RequestValidatorTest {
         UpdateUserRequest request = new UpdateUserRequest();
         request.setLastName("Петров-Старший");
 
-        StepVerifier.create(validator.validateUpdate(request))
-                .assertNext(valid -> assertThat(valid.getLastName()).isEqualTo("Петров-Старший"))
-                .verifyComplete();
+        UpdateUserRequest valid = validator.validateUpdate(request);
+
+        assertThat(valid.getLastName()).isEqualTo("Петров-Старший");
     }
 
     @Test
@@ -71,9 +68,8 @@ class RequestValidatorTest {
         UpdateUserRequest request = new UpdateUserRequest();
         request.setEmail("not-an-email");
 
-        StepVerifier.create(validator.validateUpdate(request))
-                .expectError(RequestValidationException.class)
-                .verify();
+        assertThatThrownBy(() -> validator.validateUpdate(request))
+                .isInstanceOf(RequestValidationException.class);
     }
 
     private CreateUserRequest validCreateRequest() {
