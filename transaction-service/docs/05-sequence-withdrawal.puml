@@ -1,0 +1,43 @@
+@startuml transaction-sequence-withdrawal
+title Вывод (withdrawal): init → confirm → асинхронный результат (успех или возврат)
+
+actor "Клиент" as Client
+participant "individuals-api" as Ind
+participant "transaction-service" as TS
+database "PostgreSQL (shards)" as DB
+queue "Kafka" as K
+participant "Kafka consumer\n(transaction-service)" as Cons
+
+== init: только расчёт, без записи в БД ==
+Client -> Ind : POST /transactions/withdrawal/init
+Ind -> Ind : валидация пользователя
+Ind -> TS : Feign: init withdrawal
+TS -> DB : чтение кошелька и баланса (read-only)
+TS --> Ind : условия: комиссия, доступность, итоговая сумма
+Ind --> Client : 200 Условия вывода
+
+== confirm: списание и создание PENDING ==
+Client -> Ind : POST /transactions/withdrawal/confirm
+Ind -> Ind : валидация пользователя
+Ind -> TS : Feign: confirm withdrawal
+TS -> DB : UPDATE wallets SET balance -= (amount + fee)
+TS -> DB : INSERT transaction (status=PENDING)
+TS -> K : produce WithdrawalRequested
+TS --> Ind : 200 status=PENDING, transactionId
+Ind --> Client : 200 status=PENDING, transactionId
+
+== finalize: асинхронно через Kafka ==
+alt WithdrawalCompleted
+  K -> Cons : WithdrawalCompleted
+  Cons -> DB : UPDATE transaction SET status=COMPLETED
+else WithdrawalFailed
+  K -> Cons : WithdrawalFailed (failureReason)
+  Cons -> DB : UPDATE wallets SET balance += (amount + fee)
+  Cons -> DB : UPDATE transaction SET status=FAILED, failure_reason
+end
+
+Client -> Ind : GET /transactions/{id}/status
+Ind -> TS : Feign: статус
+TS --> Ind : COMPLETED или FAILED
+Ind --> Client : 200 статус и детали
+@enduml

@@ -1,0 +1,51 @@
+@startuml transaction-c4-container
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title transaction-service — контейнерная диаграмма (C4)
+
+Person(client, "Клиент", "Пользователь платёжной системы")
+
+System_Boundary(platform, "Платёжная система") {
+
+  Container(individuals, "individuals-api", "Spring Boot", "Оркестратор: аутентификация и валидация пользователя, проксирование запросов в transaction-service по Feign")
+
+  Container(transaction, "transaction-service", "Spring Boot, Spring MVC + JPA + Kafka + ShardingSphere", "Кошельки и транзакции: init / confirm / status; асинхронная финализация deposit и withdrawal")
+
+  ContainerDb(shards, "PostgreSQL (N шардов)", "PostgreSQL + ShardingSphere JDBC", "wallet_types, wallets, transactions")
+
+  Container(kafka, "Kafka", "Apache Kafka", "DepositRequested / DepositCompleted, WithdrawalRequested / WithdrawalCompleted|Failed")
+}
+
+System_Ext(keycloak, "Keycloak", "OIDC / Admin REST")
+
+System_Boundary(observability, "Наблюдаемость") {
+  Container(prometheus, "Prometheus", "Prometheus", "Метрики с /actuator/prometheus")
+  Container(loki, "Loki", "Grafana Loki", "Логи (JSON)")
+  Container(tempo, "Tempo", "Grafana Tempo", "Трассы (OTLP)")
+  Container(grafana, "Grafana", "Grafana", "Дашборды: метрики, логи, трассы")
+}
+
+Rel(client, individuals, "HTTP/JSON, JWT", "HTTPS")
+Rel(individuals, keycloak, "Проверка токена и пользователя", "OIDC")
+Rel(individuals, transaction, "init / confirm / status / wallets", "Feign (REST)")
+
+Rel(transaction, shards, "Чтение и запись", "ShardingSphere JDBC")
+Rel(transaction, kafka, "Produce: DepositRequested, WithdrawalRequested", "Kafka")
+Rel(kafka, transaction, "Consume: DepositCompleted, WithdrawalCompleted|Failed", "Kafka")
+
+Rel(transaction, prometheus, "Метрики", "HTTP scrape")
+Rel(transaction, loki, "Логи", "stdout → Alloy → Loki")
+Rel(transaction, tempo, "Трассы", "OTLP")
+
+Rel(prometheus, grafana, "Метрики", "HTTP")
+Rel(loki, grafana, "Логи", "HTTP")
+Rel(tempo, grafana, "Трассы", "HTTP")
+
+note right of transaction
+  Ключевые принципы ТЗ:
+  • init не пишет в БД — только расчёт условий;
+  • PENDING создаётся только на confirm;
+  • финализация deposit/withdrawal — через Kafka;
+  • кошельки и транзакции живут в одном сервисе.
+end note
+@enduml

@@ -1,0 +1,44 @@
+@startuml transaction-block-flow
+skinparam ArrowColor #555555
+skinparam Shadowing false
+skinparam RectangleBorderColor #888888
+
+title Блок-схема взаимодействия: клиент → individuals-api → transaction-service → Kafka
+
+rectangle "Клиент\n(пользователь)" as client #E3F2FD
+
+rectangle "individuals-api\n(оркестратор)" as ind #FFF3E0 {
+  rectangle "Валидация\nпользователя" as auth
+  rectangle "Проксирование\n(Feign)" as proxy
+}
+
+rectangle "transaction-service" as ts #FFF3E0 {
+  rectangle "init\nрасчёт условий,\nБЕЗ записи в БД" as init
+  rectangle "confirm\nсоздание\nPENDING" as confirm
+  rectangle "transfer\nсинхронно:\ndebit + credit" as transfer
+  rectangle "Kafka consumer\nфинализация\nстатуса" as consumer
+}
+
+database "PostgreSQL\n(N шардов)" as db #E8F5E9
+queue "Kafka" as kafka #E8F5E9
+
+client --> auth : /transactions/*\n/wallets/*
+auth --> proxy
+proxy --> init : POST .../init
+proxy --> confirm : POST .../confirm
+proxy --> transfer : POST .../transfer/confirm
+
+init --> db : только чтение
+confirm --> db : INSERT PENDING
+transfer --> db : UPDATE балансов,\nINSERT COMPLETED
+
+confirm --> kafka : DepositRequested /\nWithdrawalRequested
+kafka --> consumer : DepositCompleted /\nWithdrawalCompleted|Failed
+consumer --> db : UPDATE status\n(и баланс при необходимости)
+
+note bottom of init
+  Никакая запись в БД
+  не создаётся — только
+  комиссия и доступность.
+end note
+@enduml

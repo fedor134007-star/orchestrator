@@ -1,0 +1,50 @@
+@startuml transaction-c4-component
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title transaction-service — компоненты
+
+Container_Boundary(api, "HTTP-слой (генерируется из OpenAPI)") {
+  Component(walletApi, "WalletApi / WalletController", "Spring MVC", "POST /wallets, GET /wallets/{uid}, GET /wallets/user/{uid}")
+  Component(transactionApi, "TransactionApi / TransactionController", "Spring MVC", "POST /transactions/{type}/init, /confirm, GET /transactions/{id}/status, GET /transactions")
+  Component(dto, "DTO", "Java (openapi-generator)", "CreateWalletRequest, WalletResponse, *InitRequest, *ConfirmRequest, TransactionStatusResponse, ErrorResponse")
+}
+
+Container_Boundary(app, "Прикладной слой") {
+  Component(walletService, "WalletService", "Spring @Service", "Создание и чтение кошельков, debit/credit баланса")
+  Component(transactionService, "TransactionService", "Spring @Service", "Оркестрация init / confirm / status, выбор сценария по типу")
+  Component(conditions, "ConditionsCalculator", "Spring @Component", "Комиссия, доступность, итоговая сумма — без записи в БД")
+  Component(stateMachine, "StatusTransition", "Spring @Component", "Допустимые переходы: PENDING → COMPLETED / FAILED")
+  Component(walletRepo, "WalletRepository", "Spring Data JPA", "wallet_types, wallets")
+  Component(transactionRepo, "TransactionRepository", "Spring Data JPA", "transactions")
+  Component(producer, "KafkaProducer", "Spring for Apache Kafka", "Публикует DepositRequested и WithdrawalRequested")
+  Component(consumer, "KafkaConsumer", "Spring for Apache Kafka", "Слушает DepositCompleted, WithdrawalCompleted|Failed и финализирует")
+  Component(mapper, "Mappers", "ручные/MapStruct", "Entity ↔ DTO")
+  Component(advice, "ErrorHandler", "Spring @RestControllerAdvice", "ErrorResponse (RFC 9457-совместимый)")
+  Component(metrics, "Metrics", "Micrometer", "Счётчики по типу и статусу, латентность")
+}
+
+ContainerDb(shards, "PostgreSQL shards", "ShardingSphere JDBC", "wallet_types, wallets, transactions")
+Container(kafka, "Kafka", "Apache Kafka", "топики транзакций")
+
+Rel(walletApi, walletService, "вызывает")
+Rel(transactionApi, transactionService, "вызывает")
+Rel(transactionApi, mapper, "отображение DTO")
+Rel(transactionApi, advice, "ошибки")
+
+Rel(transactionService, conditions, "расчёт условий на init")
+Rel(transactionService, walletService, "проверка и изменение баланса")
+Rel(transactionService, transactionRepo, "создание и чтение транзакции")
+Rel(transactionService, stateMachine, "проверка перехода статуса")
+Rel(transactionService, producer, "событие на confirm")
+Rel(transactionService, metrics, "инкремент счётчиков")
+
+Rel(walletService, walletRepo, "JPA")
+Rel(consumer, transactionRepo, "обновляет статус")
+Rel(consumer, walletService, "зачисление / возврат средств")
+Rel(consumer, stateMachine, "переход статуса")
+
+Rel(walletRepo, shards, "JDBC")
+Rel(transactionRepo, shards, "JDBC")
+Rel(producer, kafka, "produce")
+Rel(kafka, consumer, "consume")
+@enduml

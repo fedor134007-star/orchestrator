@@ -1,0 +1,34 @@
+@startuml transaction-sequence-transfer
+title Перевод (transfer): полностью синхронный сценарий
+
+actor "Клиент" as Client
+participant "individuals-api" as Ind
+participant "transaction-service" as TS
+database "PostgreSQL (shards)" as DB
+
+== init: только расчёт, без записи в БД ==
+Client -> Ind : POST /transactions/transfer/init
+Ind -> Ind : валидация пользователя
+Ind -> TS : Feign: init transfer
+TS -> DB : чтение исходного и целевого кошельков (read-only)
+TS --> Ind : условия: комиссия, доступность, итоговая сумма
+Ind --> Client : 200 Условия перевода
+
+== confirm: синхронное списание и зачисление ==
+Client -> Ind : POST /transactions/transfer/confirm
+Ind -> Ind : валидация пользователя
+Ind -> TS : Feign: confirm transfer
+TS -> DB : BEGIN
+TS -> DB : UPDATE wallets SET balance -= (amount + fee)  (источник)
+TS -> DB : UPDATE wallets SET balance += amount         (получатель)
+TS -> DB : INSERT transaction (status=COMPLETED)
+TS -> DB : COMMIT
+TS --> Ind : 200 status=COMPLETED, transactionId
+Ind --> Client : 200 COMPLETED, transactionId
+
+note over TS, DB
+  Kafka в transfer не участвует:
+  операция целиком синхронная,
+  обе записи в одной транзакции БД.
+end note
+@enduml

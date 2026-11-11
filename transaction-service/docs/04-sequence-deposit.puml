@@ -1,0 +1,37 @@
+@startuml transaction-sequence-deposit
+title Пополнение (deposit): init → confirm → асинхронная финализация через Kafka
+
+actor "Клиент" as Client
+participant "individuals-api" as Ind
+participant "transaction-service" as TS
+database "PostgreSQL (shards)" as DB
+queue "Kafka" as K
+participant "Kafka consumer\n(transaction-service)" as Cons
+
+== init: только расчёт, без записи в БД ==
+Client -> Ind : POST /transactions/deposit/init
+Ind -> Ind : валидация пользователя (JWT)
+Ind -> TS : Feign: init deposit
+TS -> DB : чтение кошелька и валюты (read-only)
+TS --> Ind : условия: комиссия, доступность, итоговая сумма
+Ind --> Client : 200 Условия пополнения
+
+== confirm: создание PENDING и событие в Kafka ==
+Client -> Ind : POST /transactions/deposit/confirm
+Ind -> Ind : валидация пользователя
+Ind -> TS : Feign: confirm deposit
+TS -> DB : INSERT transaction (status=PENDING)
+TS -> K : produce DepositRequested
+TS --> Ind : 200 status=PENDING, transactionId
+Ind --> Client : 200 status=PENDING, transactionId
+
+== finalize: асинхронно через Kafka ==
+K -> Cons : DepositCompleted
+Cons -> DB : UPDATE wallets SET balance += amount
+Cons -> DB : UPDATE transaction SET status=COMPLETED
+Client -> Ind : GET /transactions/{id}/status
+Ind -> TS : Feign: статус
+TS -> DB : SELECT transaction
+TS --> Ind : COMPLETED
+Ind --> Client : 200 COMPLETED
+@enduml
