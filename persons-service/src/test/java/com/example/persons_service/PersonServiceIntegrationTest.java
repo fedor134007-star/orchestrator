@@ -29,6 +29,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -355,6 +356,40 @@ class PersonServiceIntegrationTest {
 
         // Email освобождён: повторная регистрация с тем же email проходит
         createUser(email);
+    }
+
+    @Test
+    @DisplayName("неизвестный режим удаления → 400, данные не меняются")
+    void rejectsUnknownDeleteMode() throws Exception {
+        String id = createUser(uniqueEmail());
+
+        mockMvc.perform(delete("/api/v1/users/{id}", id).param("mode", "sofft"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.errors.mode").exists());
+
+        // Ни физического, ни мягкого удаления не произошло
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from person.users where id = ? and deleted_at is null",
+                Integer.class, UUID.fromString(id))).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("стандартные HTTP-ошибки сохраняют статусы: 405 и 415")
+    void preservesStandardHttpStatuses() throws Exception {
+        // PUT на коллекцию не поддерживается → 405 (а не 500)
+        mockMvc.perform(put("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+
+        // text/plain вместо application/json → 415 (а не 500)
+        mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("plain text"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
     }
 
     @Test

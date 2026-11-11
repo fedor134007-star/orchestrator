@@ -1,5 +1,6 @@
 package com.example.persons_service.controller;
 
+import com.example.persons_service.exception.RequestValidationException;
 import com.example.persons_service.service.PersonService;
 import net.example.person.api.UsersApiDelegate;
 import net.example.person.dto.CreateUserRequest;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -51,12 +53,30 @@ public class UsersApiDelegateImpl implements UsersApiDelegate {
 
     @Override
     public ResponseEntity<Void> deleteUser(UUID id, String mode) {
-        personService.deleteUser(id, isSoft(mode));
+        personService.deleteUser(id, parseDeleteMode(mode));
         return ResponseEntity.noContent().build();
     }
 
-    private boolean isSoft(String mode) {
-        return "soft".equalsIgnoreCase(mode);
+    /**
+     * Строгая проверка режима удаления до вызова сервиса.
+     *
+     * <p>Допустимы только {@code hard} и {@code soft} (значения enum из контракта).
+     * Раньше любое иное значение молча трактовалось как физическое удаление — опечатка
+     * в параметре приводила к необратимой потере данных. Теперь неизвестный режим
+     * отклоняется с {@code 400}, и данные не меняются.</p>
+     */
+    private boolean parseDeleteMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return false; // контракт: по умолчанию hard
+        }
+        if ("soft".equals(mode)) {
+            return true;
+        }
+        if ("hard".equals(mode)) {
+            return false;
+        }
+        throw new RequestValidationException(Map.of(
+                "mode", "Недопустимый режим удаления: ожидается soft или hard"));
     }
 
     /** Location созданного ресурса — от текущего запроса. */

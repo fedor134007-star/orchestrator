@@ -46,10 +46,15 @@ public class UserServiceImpl implements UserService {
                     UUID userUid = personResponse.getId();
                     log.info("Person created with userUid: {}", userUid);
 
-                    return keycloakClient.register(request)
+                    // Компенсация относится ТОЛЬКО к шагу регистрации в Keycloak:
+                    // если учётная запись в IdP не создана, доменный пользователь «висячий».
+                    return compensateOnKeycloakFailure(keycloakClient.register(request), userUid)
                             .flatMap(keycloakUserId -> {
                                 log.info("User registered in Keycloak with id: {}", keycloakUserId);
 
+                                // Вход отделён от регистрации: учётная запись Keycloak уже создана,
+                                // поэтому сбой выдачи токена не должен удалять доменного пользователя.
+                                // Клиент получит ошибку и сможет войти повторно.
                                 LoginRequest loginRequest = new LoginRequest();
                                 loginRequest.setEmail(request.getEmail());
                                 loginRequest.setPassword(request.getPassword());
@@ -60,18 +65,7 @@ public class UserServiceImpl implements UserService {
                                             tokenResponse.setKeycloakUserId(keycloakUserId);
                                             return tokenResponse;
                                         });
-                            })
-                            // Компенсация (saga): доменный пользователь уже создан в person-service.
-                            // Если регистрация в Keycloak или получение токена не удались, откатываем
-                            // пользователя из person-service, чтобы не оставить «висячий» аккаунт
-                            // без учётной записи в системе идентификации.
-                            .onErrorResume(error -> personsClient.deletePerson(userUid)
-                                    .onErrorResume(compensationError -> {
-                                        log.warn("Не удалось откатить пользователя {} из person-service: {}",
-                                                userUid, compensationError.getMessage());
-                                        return Mono.empty();
-                                    })
-                                    .then(Mono.error(error)));
+                            });
                 })
                 .doOnSuccess(r -> {
                     log.info("Registration completed for email: {}", request.getEmail());
@@ -87,6 +81,23 @@ public class UserServiceImpl implements UserService {
                     }
                     return new RegistrationException("Failed to register user", e);
                 });
+    }
+
+    /**
+     * Откатывает доменного пользователя из person-service, если не удалось создать
+     * учётную запись в Keycloak.
+     *
+     * <p>Сбой самой компенсации логируется, но не подменяет исходную ошибку: клиенту
+     * важно получить причину неудачной регистрации, а не «не удалось откатить».</p>
+     */
+    private <T> Mono<T> compensateOnKeycloakFailure(Mono<T> keycloakRegistration, UUID userUid) {
+        return keycloakRegistration.onErrorResume(error -> personsClient.deletePerson(userUid)
+                .onErrorResume(compensationError -> {
+                    log.warn("Не удалось откатить пользователя {} из person-service: {}",
+                            userUid, compensationError.getMessage());
+                    return Mono.empty();
+                })
+                .then(Mono.error(error)));
     }
 
     @Override

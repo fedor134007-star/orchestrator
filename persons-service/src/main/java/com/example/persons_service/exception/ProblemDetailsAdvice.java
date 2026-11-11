@@ -6,9 +6,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -169,6 +173,48 @@ public class ProblemDetailsAdvice {
                 "Ресурс не найден",
                 "Запрошенный ресурс не существует",
                 request);
+    }
+
+    /**
+     * Неподдерживаемый HTTP-метод: сохраняем 405 и служебный заголовок {@code Allow},
+     * иначе generic-обработчик {@code Exception} превращал бы это в 500.
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    ResponseEntity<ProblemDetail> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex,
+                                                           HttpServletRequest request) {
+        ProblemDetail problem = problem(
+                HttpStatus.METHOD_NOT_ALLOWED,
+                ProblemTypes.METHOD_NOT_ALLOWED,
+                "Метод не поддерживается",
+                "Метод " + ex.getMethod() + " не поддерживается для этого ресурса",
+                request);
+
+        HttpHeaders headers = new HttpHeaders();
+        if (ex.getSupportedHttpMethods() != null) {
+            headers.setAllow(ex.getSupportedHttpMethods());
+        }
+        return new ResponseEntity<>(problem, headers, HttpStatus.METHOD_NOT_ALLOWED);
+    }
+
+    /**
+     * Неподдерживаемый Content-Type: сохраняем 415 и заголовок {@code Accept}
+     * с перечнем поддерживаемых типов.
+     */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    ResponseEntity<ProblemDetail> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex,
+                                                              HttpServletRequest request) {
+        ProblemDetail problem = problem(
+                HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                ProblemTypes.UNSUPPORTED_MEDIA_TYPE,
+                "Неподдерживаемый тип содержимого",
+                "Тип " + ex.getContentType() + " не поддерживается",
+                request);
+
+        HttpHeaders headers = new HttpHeaders();
+        if (ex.getSupportedMediaTypes() != null && !ex.getSupportedMediaTypes().isEmpty()) {
+            headers.setAccept(ex.getSupportedMediaTypes());
+        }
+        return new ResponseEntity<>(problem, headers, HttpStatus.UNSUPPORTED_MEDIA_TYPE);
     }
 
     @ExceptionHandler(Exception.class)
