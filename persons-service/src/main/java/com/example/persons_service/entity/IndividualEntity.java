@@ -1,8 +1,13 @@
 package com.example.persons_service.entity;
 
-import org.springframework.data.annotation.Id;
-import org.springframework.data.annotation.Version;
-import org.springframework.data.relational.core.mapping.Table;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Version;
+import org.hibernate.envers.Audited;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -11,25 +16,36 @@ import java.util.UUID;
  * Индивидуальные данные пользователя: паспорт, телефон, статус верификации.
  * Связь с пользователем — через {@code userId} (FK individuals.user_id).
  */
-@Table(value = "individuals", schema = "person")
+@Audited(withModifiedFlag = true)
+@Entity
+@Table(name = "individuals", schema = "person")
 public class IndividualEntity {
 
     @Id
+    @Column(name = "id", nullable = false)
     private UUID id;
 
+    @Column(name = "user_id")
     private UUID userId;
 
     @Version
+    @Column(name = "version")
     private Long version;
 
+    @Column(name = "passport_number")
     private String passportNumber;
 
+    @Column(name = "phone_number")
     private String phoneNumber;
 
+    @Column(name = "verified_at")
     private OffsetDateTime verifiedAt;
 
+    @Column(name = "archived_at")
     private OffsetDateTime archivedAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status")
     private IndividualStatus status;
 
     public static IndividualEntity newInstance() {

@@ -15,6 +15,8 @@ public final class ProblemTypes {
     public static final URI EMAIL_ALREADY_EXISTS = URI.create(BASE + "email-already-exists");
     public static final URI UNKNOWN_COUNTRY = URI.create(BASE + "unknown-country");
     public static final URI CONCURRENT_MODIFICATION = URI.create(BASE + "concurrent-modification");
+    public static final URI METHOD_NOT_ALLOWED = URI.create(BASE + "method-not-allowed");
+    public static final URI UNSUPPORTED_MEDIA_TYPE = URI.create(BASE + "unsupported-media-type");
     public static final URI INTERNAL_ERROR = URI.create(BASE + "internal-error");
 
     private ProblemTypes() {

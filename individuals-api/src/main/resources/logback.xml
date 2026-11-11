@@ -7,10 +7,11 @@
 
     <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>{"timestamp":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}", "trace_id": "%X{trace_id}",
-                "span_id":"%X{span_id}", "level":"%level", "thread":"%thread",
-                "logger":"%logger{36}","message":"%msg"}%n
-            </pattern>
+            <!-- Паттерн строго в ОДНУ строку: многострочный JSON Alloy не разбирает
+                 (stage.json парсит построчно), поэтому такие логи не попадали в панели
+                 Grafana с фильтром по level и не получали метку trace_id.
+                 Имена полей совпадают с person-service (traceId/spanId). -->
+            <pattern>{"timestamp":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}", "traceId": "%X{trace_id}", "spanId":"%X{span_id}", "level":"%level", "thread":"%thread", "logger":"%logger{36}","message":"%msg"}%n</pattern>
         </encoder>
     </appender>
 

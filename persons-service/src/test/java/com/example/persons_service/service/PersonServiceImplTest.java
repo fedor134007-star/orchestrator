@@ -2,7 +2,6 @@ package com.example.persons_service.service;
 
 import com.example.persons_service.aggregate.AggregatePatch;
 import com.example.persons_service.aggregate.UserAggregate;
-import com.example.persons_service.audit.AuditRecorder;
 import com.example.persons_service.entity.AddressEntity;
 import com.example.persons_service.entity.CountryEntity;
 import com.example.persons_service.entity.IndividualEntity;
@@ -15,20 +14,22 @@ import com.example.persons_service.repository.UserAggregateStore;
 import jakarta.validation.Validation;
 import net.example.person.dto.CreateUserRequest;
 import net.example.person.dto.UpdateUserRequest;
+import net.example.person.dto.UserResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import reactor.core.publisher.Mono;
-import reactor.test.StepVerifier;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -39,17 +40,14 @@ import static org.mockito.Mockito.when;
 @DisplayName("PersonServiceImpl: сценарии и их порядок")
 class PersonServiceImplTest {
 
-    private static final OffsetDateTime NOW =
-            OffsetDateTime.of(2026, 6, 8, 10, 15, 30, 0, ZoneOffset.UTC);
+    private static final Instant FIXED_INSTANT = Instant.parse("2026-06-08T10:15:30Z");
+    private static final OffsetDateTime NOW = OffsetDateTime.ofInstant(FIXED_INSTANT, ZoneOffset.UTC);
 
     @Mock
     private UserAggregateStore store;
 
     @Mock
     private UserAggregateAssembler assembler;
-
-    @Mock
-    private AuditRecorder auditRecorder;
 
     private PersonServiceImpl service;
 
@@ -58,45 +56,39 @@ class PersonServiceImplTest {
         service = new PersonServiceImpl(
                 store,
                 assembler,
-                auditRecorder,
                 new PersonDtoMapper(),
-                new RequestValidator(Validation.buildDefaultValidatorFactory().getValidator()));
+                new RequestValidator(Validation.buildDefaultValidatorFactory().getValidator()),
+                Clock.fixed(FIXED_INSTANT, ZoneOffset.UTC));
     }
 
     @Test
-    @DisplayName("создание: проверка email → сборка агрегата → вставка → ревизия → ответ")
+    @DisplayName("создание: проверка email → сборка агрегата → вставка → ответ")
     void createsAggregate() {
         CreateUserRequest request = createRequest();
         UserAggregate aggregate = aggregate();
 
-        when(store.emailExists("ivan.petrov@example.org")).thenReturn(Mono.just(false));
-        when(assembler.forCreate(request)).thenReturn(Mono.just(aggregate));
-        when(store.insert(aggregate)).thenReturn(Mono.just(aggregate));
-        when(auditRecorder.recordCreated(aggregate)).thenReturn(Mono.empty());
+        when(store.emailExists("ivan.petrov@example.org")).thenReturn(false);
+        when(assembler.forCreate(request)).thenReturn(aggregate);
+        when(store.insert(aggregate)).thenReturn(aggregate);
 
-        StepVerifier.create(service.createUser(request))
-                .assertNext(response -> {
-                    assertThat(response.getId()).isEqualTo(aggregate.user().getId());
-                    assertThat(response.getEmail()).isEqualTo("ivan.petrov@example.org");
-                    assertThat(response.getFilled()).isTrue();
-                    assertThat(response.getAddress().getCountryAlpha3()).isEqualTo("RUS");
-                })
-                .verifyComplete();
+        UserResponse response = service.createUser(request);
 
-        verify(auditRecorder).recordCreated(aggregate);
+        assertThat(response.getId()).isEqualTo(aggregate.user().getId());
+        assertThat(response.getEmail()).isEqualTo("ivan.petrov@example.org");
+        assertThat(response.getFilled()).isTrue();
+        assertThat(response.getAddress().getCountryAlpha3()).isEqualTo("RUS");
     }
 
     @Test
     @DisplayName("создание: занятый email отклоняется до сборки агрегата")
     void rejectsDuplicateEmail() {
         CreateUserRequest request = createRequest();
-        when(store.emailExists("ivan.petrov@example.org")).thenReturn(Mono.just(true));
+        when(store.emailExists("ivan.petrov@example.org")).thenReturn(true);
 
-        StepVerifier.create(service.createUser(request))
-                .expectError(EmailAlreadyExistsException.class)
-                .verify();
+        assertThatThrownBy(() -> service.createUser(request))
+                .isInstanceOf(EmailAlreadyExistsException.class);
 
-        verifyNoInteractions(assembler, auditRecorder);
+        verifyNoInteractions(assembler);
         verify(store, never()).insert(any());
     }
 
@@ -106,37 +98,31 @@ class PersonServiceImplTest {
         CreateUserRequest request = new CreateUserRequest();
         request.setEmail("not-an-email");
 
-        StepVerifier.create(service.createUser(request))
-                .expectErrorSatisfies(error -> {
-                    assertThat(error).isInstanceOf(RequestValidationException.class);
-                    assertThat(((RequestValidationException) error).getErrors())
-                            .containsKeys("email", "firstName", "lastName");
-                })
-                .verify();
+        assertThatThrownBy(() -> service.createUser(request))
+                .isInstanceOf(RequestValidationException.class)
+                .satisfies(error -> assertThat(((RequestValidationException) error).getErrors())
+                        .containsKeys("email", "firstName", "lastName"));
 
-        verifyNoInteractions(store, assembler, auditRecorder);
+        verifyNoInteractions(store, assembler);
     }
 
     @Test
     @DisplayName("чтение по id отдаёт агрегат из хранилища")
     void readsById() {
         UserAggregate aggregate = aggregate();
-        when(store.loadById(aggregate.user().getId())).thenReturn(Mono.just(aggregate));
+        when(store.loadById(aggregate.user().getId())).thenReturn(aggregate);
 
-        StepVerifier.create(service.getUserById(aggregate.user().getId()))
-                .assertNext(response -> assertThat(response.getAddress().getCity()).isEqualTo("Moscow"))
-                .verifyComplete();
+        assertThat(service.getUserById(aggregate.user().getId()).getAddress().getCity()).isEqualTo("Moscow");
     }
 
     @Test
     @DisplayName("чтение по email обрезает пробелы перед поиском")
     void readsByEmailWithTrimming() {
         UserAggregate aggregate = aggregate();
-        when(store.loadByEmail("IVAN.PETROV@example.org")).thenReturn(Mono.just(aggregate));
+        when(store.loadByEmail("IVAN.PETROV@example.org")).thenReturn(aggregate);
 
-        StepVerifier.create(service.getUserByEmail("  IVAN.PETROV@example.org "))
-                .assertNext(response -> assertThat(response.getEmail()).isEqualTo("ivan.petrov@example.org"))
-                .verifyComplete();
+        assertThat(service.getUserByEmail("  IVAN.PETROV@example.org ").getEmail())
+                .isEqualTo("ivan.petrov@example.org");
 
         verify(store).loadByEmail("IVAN.PETROV@example.org");
     }
@@ -145,15 +131,14 @@ class PersonServiceImplTest {
     @DisplayName("чтение: 404 из хранилища пробрасывается как есть")
     void propagatesNotFound() {
         UUID id = UUID.randomUUID();
-        when(store.loadById(id)).thenReturn(Mono.error(new UserNotFoundException(id)));
+        when(store.loadById(id)).thenThrow(new UserNotFoundException(id));
 
-        StepVerifier.create(service.getUserById(id))
-                .expectError(UserNotFoundException.class)
-                .verify();
+        assertThatThrownBy(() -> service.getUserById(id))
+                .isInstanceOf(UserNotFoundException.class);
     }
 
     @Test
-    @DisplayName("изменение: изменённый патч сохраняется и попадает в аудит")
+    @DisplayName("изменение: изменённый патч сохраняется")
     void appliesChangedPatch() {
         UserAggregate before = aggregate();
         UpdateUserRequest request = new UpdateUserRequest();
@@ -165,37 +150,29 @@ class PersonServiceImplTest {
                 new AggregatePatch.AddressChange(after.address(), false, false),
                 new AggregatePatch.IndividualChange(after.individual(), false, false));
 
-        when(store.loadById(before.user().getId())).thenReturn(Mono.just(before));
-        when(assembler.forUpdate(before, request)).thenReturn(Mono.just(patch));
-        when(store.update(patch)).thenReturn(Mono.just(after));
-        when(auditRecorder.recordUpdated(patch, after)).thenReturn(Mono.empty());
+        when(store.loadById(before.user().getId())).thenReturn(before);
+        when(assembler.forUpdate(before, request)).thenReturn(patch);
+        when(store.update(patch)).thenReturn(after);
 
-        StepVerifier.create(service.updateUser(before.user().getId(), request))
-                .assertNext(response -> {
-                    assertThat(response.getLastName()).isEqualTo("Петров-Старший");
-                    assertThat(response.getUpdatedAt()).isEqualTo(NOW);
-                })
-                .verifyComplete();
+        UserResponse response = service.updateUser(before.user().getId(), request);
 
-        verify(auditRecorder).recordUpdated(patch, after);
+        assertThat(response.getLastName()).isEqualTo("Петров-Старший");
+        assertThat(response.getUpdatedAt()).isEqualTo(NOW);
     }
 
     @Test
-    @DisplayName("изменение: пустой патч не пишется и не создаёт ревизию")
+    @DisplayName("изменение: пустой патч не пишется")
     void skipsNoOpPatch() {
         UserAggregate before = aggregate();
         UpdateUserRequest request = new UpdateUserRequest();
         AggregatePatch patch = new AggregatePatch(before, before, false, null, null);
 
-        when(store.loadById(before.user().getId())).thenReturn(Mono.just(before));
-        when(assembler.forUpdate(before, request)).thenReturn(Mono.just(patch));
+        when(store.loadById(before.user().getId())).thenReturn(before);
+        when(assembler.forUpdate(before, request)).thenReturn(patch);
 
-        StepVerifier.create(service.updateUser(before.user().getId(), request))
-                .assertNext(response -> assertThat(response.getLastName()).isEqualTo("Петров"))
-                .verifyComplete();
+        assertThat(service.updateUser(before.user().getId(), request).getLastName()).isEqualTo("Петров");
 
         verify(store, never()).update(any());
-        verifyNoInteractions(auditRecorder);
     }
 
     @Test
@@ -211,16 +188,14 @@ class PersonServiceImplTest {
                 new AggregatePatch.AddressChange(after.address(), false, false),
                 new AggregatePatch.IndividualChange(after.individual(), false, false));
 
-        when(store.loadById(before.user().getId())).thenReturn(Mono.just(before));
-        when(assembler.forUpdate(before, request)).thenReturn(Mono.just(patch));
-        when(store.emailExists("other@example.org")).thenReturn(Mono.just(true));
+        when(store.loadById(before.user().getId())).thenReturn(before);
+        when(assembler.forUpdate(before, request)).thenReturn(patch);
+        when(store.emailExists("other@example.org")).thenReturn(true);
 
-        StepVerifier.create(service.updateUser(before.user().getId(), request))
-                .expectError(EmailAlreadyExistsException.class)
-                .verify();
+        assertThatThrownBy(() -> service.updateUser(before.user().getId(), request))
+                .isInstanceOf(EmailAlreadyExistsException.class);
 
         verify(store, never()).update(any());
-        verifyNoInteractions(auditRecorder);
     }
 
     @Test
@@ -236,31 +211,38 @@ class PersonServiceImplTest {
                 new AggregatePatch.AddressChange(after.address(), false, false),
                 new AggregatePatch.IndividualChange(after.individual(), false, false));
 
-        when(store.loadById(before.user().getId())).thenReturn(Mono.just(before));
-        when(assembler.forUpdate(before, request)).thenReturn(Mono.just(patch));
-        when(store.update(patch)).thenReturn(Mono.just(after));
-        when(auditRecorder.recordUpdated(patch, after)).thenReturn(Mono.empty());
+        when(store.loadById(before.user().getId())).thenReturn(before);
+        when(assembler.forUpdate(before, request)).thenReturn(patch);
+        when(store.update(patch)).thenReturn(after);
 
-        StepVerifier.create(service.updateUser(before.user().getId(), request))
-                .assertNext(response -> assertThat(response.getEmail()).isEqualTo("IVAN.PETROV@example.org"))
-                .verifyComplete();
+        assertThat(service.updateUser(before.user().getId(), request).getEmail())
+                .isEqualTo("IVAN.PETROV@example.org");
 
         verify(store, never()).emailExists(any());
     }
 
     @Test
-    @DisplayName("удаление: ревизия пишется до удаления строк, в той же транзакции")
-    void deletesAggregate() {
+    @DisplayName("хард-удаление: физическое удаление агрегата")
+    void hardDeletesAggregate() {
         UserAggregate aggregate = aggregate();
-        when(store.loadById(aggregate.user().getId())).thenReturn(Mono.just(aggregate));
-        when(auditRecorder.recordDeleted(aggregate)).thenReturn(Mono.empty());
-        when(store.delete(aggregate)).thenReturn(Mono.empty());
+        when(store.loadById(aggregate.user().getId())).thenReturn(aggregate);
 
-        StepVerifier.create(service.deleteUser(aggregate.user().getId()))
-                .verifyComplete();
+        service.deleteUser(aggregate.user().getId(), false);
 
-        verify(auditRecorder).recordDeleted(aggregate);
         verify(store).delete(aggregate);
+        assertThat(aggregate.user().getDeletedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("софт-удаление: строка не удаляется, проставляется deletedAt")
+    void softDeletesAggregate() {
+        UserAggregate aggregate = aggregate();
+        when(store.loadById(aggregate.user().getId())).thenReturn(aggregate);
+
+        service.deleteUser(aggregate.user().getId(), true);
+
+        assertThat(aggregate.user().getDeletedAt()).isEqualTo(NOW);
+        verify(store, never()).delete(any());
     }
 
     // ------------------------------------------------------------------

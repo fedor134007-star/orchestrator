@@ -8,17 +8,16 @@ import com.example.persons_service.entity.IndividualEntity;
 import com.example.persons_service.entity.UserEntity;
 import com.example.persons_service.exception.UserNotFoundException;
 import org.springframework.stereotype.Component;
-import reactor.core.publisher.Mono;
 
-import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Агрегатный репозиторий: чтение и запись агрегата целиком поверх трёх R2DBC-таблиц.
+ * Агрегатный репозиторий: чтение и запись агрегата целиком поверх трёх JPA-таблиц.
  *
- * <p>Связей в R2DBC нет, поэтому здесь сосредоточены две вещи, которых не должно быть
- * в сценариях: порядок обращения к таблицам (адрес → пользователь → индивидуальные данные
- * из-за внешних ключей) и «может отсутствовать» для вложенных сущностей.</p>
+ * <p>Связи хранятся идентификаторами, поэтому здесь сосредоточены две вещи, которых не
+ * должно быть в сценариях: порядок обращения к таблицам (адрес → пользователь →
+ * индивидуальные данные из-за внешних ключей) и «может отсутствовать» для вложенных
+ * сущностей. Все операции выполняются внутри транзакции сервисного слоя.</p>
  */
 @Component
 public class UserAggregateStore {
@@ -38,65 +37,60 @@ public class UserAggregateStore {
         this.countryRepository = countryRepository;
     }
 
-    public Mono<UserAggregate> loadById(UUID id) {
-        return userRepository.findById(id)
-                .switchIfEmpty(Mono.error(new UserNotFoundException(id)))
-                .flatMap(this::assemble);
+    public UserAggregate loadById(UUID id) {
+        UserEntity user = userRepository.findById(id)
+                .orElseThrow(() -> new UserNotFoundException(id));
+        return assemble(user);
     }
 
-    public Mono<UserAggregate> loadByEmail(String email) {
-        return userRepository.findByEmailIgnoreCase(email)
-                .switchIfEmpty(Mono.error(new UserNotFoundException(email)))
-                .flatMap(this::assemble);
+    public UserAggregate loadByEmail(String email) {
+        UserEntity user = userRepository.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new UserNotFoundException(email));
+        return assemble(user);
     }
 
-    public Mono<Boolean> emailExists(String email) {
+    public boolean emailExists(String email) {
         return userRepository.existsByEmailIgnoreCase(email);
     }
 
     /** Вставка нового агрегата: адрес (на него ссылается users.address_id), затем пользователь. */
-    public Mono<UserAggregate> insert(UserAggregate aggregate) {
-        return saveAddress(aggregate.address())
-                .flatMap(savedAddress -> userRepository.save(aggregate.user())
-                        .flatMap(savedUser -> saveIndividual(aggregate.individual())
-                                .map(savedIndividual -> new UserAggregate(
-                                        savedUser,
-                                        savedAddress.orElse(null),
-                                        savedIndividual.orElse(null),
-                                        aggregate.country()))));
+    public UserAggregate insert(UserAggregate aggregate) {
+        AddressEntity savedAddress = aggregate.address() == null
+                ? null
+                : addressRepository.save(aggregate.address());
+
+        UserEntity savedUser = userRepository.save(aggregate.user());
+
+        IndividualEntity savedIndividual = aggregate.individual() == null
+                ? null
+                : individualRepository.save(aggregate.individual());
+
+        return new UserAggregate(savedUser, savedAddress, savedIndividual, aggregate.country());
     }
 
     /** Запись изменений патча: пишем только то, что реально затронуто. */
-    public Mono<UserAggregate> update(AggregatePatch patch) {
+    public UserAggregate update(AggregatePatch patch) {
         UserAggregate after = patch.after();
 
-        Mono<Void> addressStep = isAddressTouched(patch)
-                ? addressRepository.save(patch.address().entity()).then()
-                : Mono.empty();
-
-        Mono<Void> individualStep = isIndividualTouched(patch)
-                ? individualRepository.save(patch.individual().entity()).then()
-                : Mono.empty();
-
-        return addressStep
-                .then(userRepository.save(after.user()))
-                .flatMap(savedUser -> individualStep.thenReturn(savedUser))
-                .map(savedUser -> new UserAggregate(
-                        savedUser, after.address(), after.individual(), after.country()));
+        if (isAddressTouched(patch)) {
+            addressRepository.save(patch.address().entity());
+        }
+        UserEntity savedUser = userRepository.save(after.user());
+        if (isIndividualTouched(patch)) {
+            individualRepository.save(patch.individual().entity());
+        }
+        return new UserAggregate(savedUser, after.address(), after.individual(), after.country());
     }
 
     /** Удаление агрегата: сначала снимаем внешние ключи, затем корень. */
-    public Mono<Void> delete(UserAggregate aggregate) {
-        Mono<Void> deleteIndividual = aggregate.individual() == null
-                ? Mono.empty()
-                : individualRepository.delete(aggregate.individual());
-        Mono<Void> deleteAddress = aggregate.address() == null
-                ? Mono.empty()
-                : addressRepository.delete(aggregate.address());
-
-        return deleteIndividual
-                .then(userRepository.delete(aggregate.user()))
-                .then(deleteAddress);
+    public void delete(UserAggregate aggregate) {
+        if (aggregate.individual() != null) {
+            individualRepository.delete(aggregate.individual());
+        }
+        userRepository.delete(aggregate.user());
+        if (aggregate.address() != null) {
+            addressRepository.delete(aggregate.address());
+        }
     }
 
     private boolean isAddressTouched(AggregatePatch patch) {
@@ -107,37 +101,17 @@ public class UserAggregateStore {
         return patch.individual() != null && patch.individual().touched();
     }
 
-    private Mono<UserAggregate> assemble(UserEntity user) {
-        Mono<Optional<AddressEntity>> address = user.getAddressId() == null
-                ? Mono.just(Optional.empty())
-                : addressRepository.findById(user.getAddressId()).map(Optional::of).defaultIfEmpty(Optional.empty());
+    private UserAggregate assemble(UserEntity user) {
+        AddressEntity address = user.getAddressId() == null
+                ? null
+                : addressRepository.findById(user.getAddressId()).orElse(null);
 
-        Mono<Optional<IndividualEntity>> individual = individualRepository.findByUserId(user.getId())
-                .map(Optional::of)
-                .defaultIfEmpty(Optional.empty());
+        IndividualEntity individual = individualRepository.findByUserId(user.getId()).orElse(null);
 
-        return Mono.zip(address, individual).flatMap(tuple -> {
-            AddressEntity foundAddress = tuple.getT1().orElse(null);
-            IndividualEntity foundIndividual = tuple.getT2().orElse(null);
-
-            if (foundAddress == null || foundAddress.getCountryId() == null) {
-                return Mono.just(new UserAggregate(user, foundAddress, foundIndividual, null));
-            }
-            return countryRepository.findById(foundAddress.getCountryId())
-                    .map(country -> new UserAggregate(user, foundAddress, foundIndividual, country))
-                    .defaultIfEmpty(new UserAggregate(user, foundAddress, foundIndividual, null));
-        });
-    }
-
-    private Mono<Optional<AddressEntity>> saveAddress(AddressEntity address) {
-        return address == null
-                ? Mono.just(Optional.empty())
-                : addressRepository.save(address).map(Optional::of);
-    }
-
-    private Mono<Optional<IndividualEntity>> saveIndividual(IndividualEntity individual) {
-        return individual == null
-                ? Mono.just(Optional.empty())
-                : individualRepository.save(individual).map(Optional::of);
+        CountryEntity country = null;
+        if (address != null && address.getCountryId() != null) {
+            country = countryRepository.findById(address.getCountryId()).orElse(null);
+        }
+        return new UserAggregate(user, address, individual, country);
     }
 }

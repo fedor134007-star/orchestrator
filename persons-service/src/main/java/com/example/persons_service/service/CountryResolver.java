@@ -9,7 +9,6 @@ import net.example.person.dto.CreateAddressRequest;
 import net.example.person.dto.UpdateAddressRequest;
 import net.example.person.dto.UpdateUserRequest;
 import org.springframework.stereotype.Component;
-import reactor.core.publisher.Mono;
 
 /**
  * Доменная политика по странам адреса: справочник, согласованность кодов alpha-2/alpha-3
@@ -25,52 +24,50 @@ public class CountryResolver {
     }
 
     /** Страна нового адреса: если адрес передан, страна обязательна. */
-    public Mono<CountryEntity> forCreate(CreateAddressRequest address) {
+    public CountryEntity forCreate(CreateAddressRequest address) {
         if (address == null) {
-            return Mono.empty();
+            return null;
         }
         return resolve(address.getCountryAlpha3(), address.getCountryAlpha2());
     }
 
     /**
-     * Страна для PATCH. Пустой результат означает «оставить текущую»: адрес не затрагивается
+     * Страна для PATCH. {@code null} означает «оставить текущую»: адрес не затрагивается
      * либо коды не переданы, а адрес уже существует. Создание адреса без кода страны —
      * неполный агрегат.
      */
-    public Mono<CountryEntity> forUpdate(UserAggregate before, UpdateUserRequest request) {
+    public CountryEntity forUpdate(UserAggregate before, UpdateUserRequest request) {
         if (request.getAddress() == null) {
-            return Mono.empty();
+            return null;
         }
         UpdateAddressRequest addressRequest = request.getAddress();
         if (addressRequest.getCountryAlpha3() != null || addressRequest.getCountryAlpha2() != null) {
             return resolve(addressRequest.getCountryAlpha3(), addressRequest.getCountryAlpha2());
         }
         if (before.address() == null) {
-            return Mono.error(new IncompleteAggregateUpdateException(
-                    "Адрес должен содержать city, addressLine и код страны"));
+            throw new IncompleteAggregateUpdateException(
+                    "Адрес должен содержать city, addressLine и код страны");
         }
-        return Mono.empty();
+        return null;
     }
 
-    private Mono<CountryEntity> resolve(String alpha3, String alpha2) {
+    private CountryEntity resolve(String alpha3, String alpha2) {
         if (alpha3 == null && alpha2 == null) {
-            return Mono.error(new IncompleteAggregateUpdateException("Не указан код страны адреса"));
+            throw new IncompleteAggregateUpdateException("Не указан код страны адреса");
         }
 
-        Mono<CountryEntity> lookup = alpha3 != null
+        CountryEntity country = alpha3 != null
                 ? countryRepository.findByAlpha3IgnoreCase(alpha3)
-                .switchIfEmpty(Mono.error(new UnknownCountryException(
-                        "Страна с кодом alpha-3 " + alpha3 + " не найдена в справочнике")))
+                        .orElseThrow(() -> new UnknownCountryException(
+                                "Страна с кодом alpha-3 " + alpha3 + " не найдена в справочнике"))
                 : countryRepository.findByAlpha2IgnoreCase(alpha2)
-                .switchIfEmpty(Mono.error(new UnknownCountryException(
-                        "Страна с кодом alpha-2 " + alpha2 + " не найдена в справочнике")));
+                        .orElseThrow(() -> new UnknownCountryException(
+                                "Страна с кодом alpha-2 " + alpha2 + " не найдена в справочнике"));
 
-        return lookup.flatMap(country -> {
-            if (alpha2 != null && !country.getAlpha2().equalsIgnoreCase(alpha2)) {
-                return Mono.error(new UnknownCountryException(
-                        "Коды страны противоречат друг другу: alpha-3=" + alpha3 + ", alpha-2=" + alpha2));
-            }
-            return Mono.just(country);
-        });
+        if (alpha2 != null && !country.getAlpha2().equalsIgnoreCase(alpha2)) {
+            throw new UnknownCountryException(
+                    "Коды страны противоречат друг другу: alpha-3=" + alpha3 + ", alpha-2=" + alpha2);
+        }
+        return country;
     }
 }

@@ -6,19 +6,13 @@ import jakarta.validation.Validator;
 import net.example.person.dto.CreateUserRequest;
 import net.example.person.dto.UpdateUserRequest;
 import org.springframework.stereotype.Component;
-import reactor.core.publisher.Mono;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Consumer;
 
 /**
  * Валидация тела запроса по аннотациям контракта.
- *
- * <p>В WebFlux тело приходит как {@code Mono<Dto>} — автоматическая проверка тела ведёт себя
- * иначе, чем в Servlet-стеке, поэтому валидация выполняется явно: результат одинаков
- * независимо от стека и от способа вызова.</p>
  *
  * <p>Перед проверкой email нормализуется: случайные пробелы при копировании не должны
  * превращаться в 400, тем более что уникальность email в БД и так регистронезависимая.</p>
@@ -32,29 +26,30 @@ public class RequestValidator {
         this.validator = validator;
     }
 
-    public Mono<CreateUserRequest> validateCreate(CreateUserRequest request) {
-        return validateAfterTrimmingEmail(request, request.getEmail(), request::setEmail);
-    }
-
-    public Mono<UpdateUserRequest> validateUpdate(UpdateUserRequest request) {
-        return validateAfterTrimmingEmail(request, request.getEmail(), request::setEmail);
-    }
-
-    private <T> Mono<T> validateAfterTrimmingEmail(T request, String email, Consumer<String> emailSetter) {
-        if (email != null) {
-            emailSetter.accept(email.trim());
+    public CreateUserRequest validateCreate(CreateUserRequest request) {
+        if (request.getEmail() != null) {
+            request.setEmail(request.getEmail().trim());
         }
-        return validate(request);
+        validate(request);
+        return request;
     }
 
-    private <T> Mono<T> validate(T request) {
+    public UpdateUserRequest validateUpdate(UpdateUserRequest request) {
+        if (request.getEmail() != null) {
+            request.setEmail(request.getEmail().trim());
+        }
+        validate(request);
+        return request;
+    }
+
+    private <T> void validate(T request) {
         Set<ConstraintViolation<T>> violations = validator.validate(request);
         if (violations.isEmpty()) {
-            return Mono.just(request);
+            return;
         }
         Map<String, String> errors = new LinkedHashMap<>();
         violations.forEach(violation ->
                 errors.putIfAbsent(violation.getPropertyPath().toString(), violation.getMessage()));
-        return Mono.error(new RequestValidationException(errors));
+        throw new RequestValidationException(errors);
     }
 }

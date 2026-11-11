@@ -16,12 +16,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import reactor.core.publisher.Mono;
-import reactor.test.StepVerifier;
 
-import java.util.UUID;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -42,8 +41,7 @@ class CountryResolverTest {
     @Test
     @DisplayName("создание без адреса: страна не нужна и справочник не опрашивается")
     void noCountryForCreateWithoutAddress() {
-        StepVerifier.create(resolver.forCreate(null))
-                .verifyComplete();
+        assertThat(resolver.forCreate(null)).isNull();
 
         verifyNoInteractions(countryRepository);
     }
@@ -51,62 +49,50 @@ class CountryResolverTest {
     @Test
     @DisplayName("создание: страна находится по alpha-3")
     void resolvesByAlpha3() {
-        when(countryRepository.findByAlpha3IgnoreCase("RUS")).thenReturn(Mono.just(country("RUS", "RU")));
+        when(countryRepository.findByAlpha3IgnoreCase("RUS")).thenReturn(Optional.of(country("RUS", "RU")));
 
-        StepVerifier.create(resolver.forCreate(createAddress("RUS", "RU")))
-                .assertNext(country -> assertThat(country.getAlpha2()).isEqualTo("RU"))
-                .verifyComplete();
+        assertThat(resolver.forCreate(createAddress("RUS", "RU")).getAlpha2()).isEqualTo("RU");
     }
 
     @Test
     @DisplayName("создание: страна находится по alpha-2, если alpha-3 не передан")
     void resolvesByAlpha2() {
-        when(countryRepository.findByAlpha2IgnoreCase("RU")).thenReturn(Mono.just(country("RUS", "RU")));
+        when(countryRepository.findByAlpha2IgnoreCase("RU")).thenReturn(Optional.of(country("RUS", "RU")));
 
-        StepVerifier.create(resolver.forCreate(createAddress(null, "RU")))
-                .assertNext(found -> assertThat(found.getAlpha3()).isEqualTo("RUS"))
-                .verifyComplete();
+        assertThat(resolver.forCreate(createAddress(null, "RU")).getAlpha3()).isEqualTo("RUS");
     }
 
     @Test
     @DisplayName("создание: неизвестная страна")
     void unknownCountryOnCreate() {
-        when(countryRepository.findByAlpha3IgnoreCase("ZZZ")).thenReturn(Mono.empty());
+        when(countryRepository.findByAlpha3IgnoreCase("ZZZ")).thenReturn(Optional.empty());
 
-        StepVerifier.create(resolver.forCreate(createAddress("ZZZ", "ZZ")))
-                .expectErrorSatisfies(error -> {
-                    assertThat(error).isInstanceOf(UnknownCountryException.class);
-                    assertThat(error).hasMessageContaining("ZZZ");
-                })
-                .verify();
+        assertThatThrownBy(() -> resolver.forCreate(createAddress("ZZZ", "ZZ")))
+                .isInstanceOf(UnknownCountryException.class)
+                .hasMessageContaining("ZZZ");
     }
 
     @Test
     @DisplayName("создание: коды не переданы — неполный агрегат")
     void missingCodesOnCreate() {
-        StepVerifier.create(resolver.forCreate(createAddress(null, null)))
-                .expectError(IncompleteAggregateUpdateException.class)
-                .verify();
+        assertThatThrownBy(() -> resolver.forCreate(createAddress(null, null)))
+                .isInstanceOf(IncompleteAggregateUpdateException.class);
     }
 
     @Test
     @DisplayName("изменение: коды противоречат друг другу")
     void mismatchedCodes() {
-        when(countryRepository.findByAlpha3IgnoreCase("RUS")).thenReturn(Mono.just(country("RUS", "RU")));
+        when(countryRepository.findByAlpha3IgnoreCase("RUS")).thenReturn(Optional.of(country("RUS", "RU")));
 
-        StepVerifier.create(resolver.forCreate(createAddress("RUS", "DE")))
-                .expectErrorSatisfies(error -> {
-                    assertThat(error).isInstanceOf(UnknownCountryException.class);
-                    assertThat(error).hasMessageContaining("противоречат");
-                })
-                .verify();
+        assertThatThrownBy(() -> resolver.forCreate(createAddress("RUS", "DE")))
+                .isInstanceOf(UnknownCountryException.class)
+                .hasMessageContaining("противоречат");
     }
 
     @Test
     @DisplayName("изменение без адреса в запросе: страна не нужна")
     void noCountryForUpdateWithoutAddress() {
-        StepVerifier.create(resolver.forUpdate(aggregateWithAddress(), new UpdateUserRequest()))
-                .verifyComplete();
+        assertThat(resolver.forUpdate(aggregateWithAddress(), new UpdateUserRequest())).isNull();
 
         verifyNoInteractions(countryRepository);
     }
@@ -119,8 +105,7 @@ class CountryResolverTest {
         address.setCity("Saint Petersburg");
         request.setAddress(address);
 
-        StepVerifier.create(resolver.forUpdate(aggregateWithAddress(), request))
-                .verifyComplete();
+        assertThat(resolver.forUpdate(aggregateWithAddress(), request)).isNull();
 
         verifyNoInteractions(countryRepository);
     }
@@ -133,15 +118,14 @@ class CountryResolverTest {
         address.setCity("Moscow");
         request.setAddress(address);
 
-        StepVerifier.create(resolver.forUpdate(aggregateWithoutAddress(), request))
-                .expectError(IncompleteAggregateUpdateException.class)
-                .verify();
+        assertThatThrownBy(() -> resolver.forUpdate(aggregateWithoutAddress(), request))
+                .isInstanceOf(IncompleteAggregateUpdateException.class);
     }
 
     @Test
     @DisplayName("изменение: переданный код резолвится")
     void resolvesOnUpdate() {
-        when(countryRepository.findByAlpha3IgnoreCase("DEU")).thenReturn(Mono.just(country("DEU", "DE")));
+        when(countryRepository.findByAlpha3IgnoreCase("DEU")).thenReturn(Optional.of(country("DEU", "DE")));
 
         UpdateUserRequest request = new UpdateUserRequest();
         UpdateAddressRequest address = new UpdateAddressRequest();
@@ -149,9 +133,7 @@ class CountryResolverTest {
         address.setCountryAlpha2("DE");
         request.setAddress(address);
 
-        StepVerifier.create(resolver.forUpdate(aggregateWithAddress(), request))
-                .assertNext(found -> assertThat(found.getAlpha2()).isEqualTo("DE"))
-                .verifyComplete();
+        assertThat(resolver.forUpdate(aggregateWithAddress(), request).getAlpha2()).isEqualTo("DE");
     }
 
     // ------------------------------------------------------------------
