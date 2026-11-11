@@ -1,0 +1,31 @@
+@startuml transaction-status-lifecycle
+title Жизненный цикл транзакции
+
+hide empty description
+
+[*] --> PENDING : confirm (deposit / withdrawal)\nсоздаётся и уходит событие в Kafka
+[*] --> COMPLETED : confirm (transfer)\nсинхронно, сразу
+
+PENDING --> COMPLETED : Kafka: DepositCompleted /\nWithdrawalCompleted
+PENDING --> FAILED : Kafka: WithdrawalFailed\n(+ возврат средств)
+
+COMPLETED --> [*]
+FAILED --> [*]
+
+note right of PENDING
+  Единственное состояние,
+  в котором транзакция ждёт
+  внешнего результата.
+end note
+
+note right of COMPLETED
+  deposit   — баланс зачислен;
+  transfer  — debit и credit выполнены;
+  withdrawal — списание окончательное.
+end note
+
+note right of FAILED
+  withdrawal — средства возвращены
+  на кошелёк, статус зафиксирован.
+end note
+@enduml

@@ -1,0 +1,67 @@
+@startuml transaction-data-model
+title Модель данных transaction-service
+
+hide circle
+skinparam linetype ortho
+skinparam shadowing false
+
+entity "wallet_types" as wt {
+  * uid : UUID <<PK>>
+  --
+  created_at : TIMESTAMP
+  modified_at : TIMESTAMP
+  name : VARCHAR(32)
+  currency_code : VARCHAR(3)
+  status : VARCHAR(18)
+  archived_at : TIMESTAMP
+  user_type : VARCHAR(15)
+  creator : VARCHAR(255)
+  modifier : VARCHAR(255)
+}
+
+entity "wallets" as w {
+  * uid : UUID <<PK>>
+  --
+  created_at : TIMESTAMP
+  modified_at : TIMESTAMP
+  name : VARCHAR(32)
+  wallet_type_uid : UUID <<FK>>
+  user_uid : UUID
+  status : VARCHAR(30)
+  balance : DECIMAL
+  archived_at : TIMESTAMP
+}
+
+entity "transactions" as t {
+  * uid : UUID <<PK>>
+  --
+  created_at : TIMESTAMP
+  modified_at : TIMESTAMP
+  user_uid : UUID
+  wallet_uid : UUID <<FK>>
+  amount : DECIMAL
+  type : payment_type
+  status : VARCHAR(32)
+  comment : VARCHAR(256)
+  fee : DECIMAL
+  target_wallet_uid : UUID
+  payment_method_id : BIGINT
+  failure_reason : VARCHAR(256)
+}
+
+wt ||--o{ w : "wallet_type_uid"
+w ||--o{ t : "wallet_uid"
+
+note bottom of t
+  type: PostgreSQL ENUM
+  payment_type = DEPOSIT | WITHDRAWAL | TRANSFER
+  target_wallet_uid заполняется только для TRANSFER,
+  payment_method_id — для DEPOSIT / WITHDRAWAL.
+end note
+
+note bottom of w
+  user_uid — ссылка на пользователя
+  из person-service (межсервисная,
+  FK в БД нет).
+end note
+@enduml
